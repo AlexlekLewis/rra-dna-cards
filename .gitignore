@@ -1,0 +1,13 @@
+node_modules
+dist
+.DS_Store
+*.local
+
+# Large branding assets (kept locally, not in repo)
+Branding Guidlines/rr-brand-kit.zip
+Branding Guidlines/Montserrat.zip
+Branding Guidlines/Montserrat-Bold.ttf
+MELBOURNE.Blue.png
+MELBOURNE.Pink.png
+Melbourne_Official_1.png
+Royals.Art.png
