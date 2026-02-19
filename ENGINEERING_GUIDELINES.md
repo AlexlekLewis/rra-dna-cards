@@ -43,6 +43,15 @@ This data belongs to real coaches and real players. It must be protected at all 
 - Before any new table is created, state the RLS policy that will protect it
 - Regularly audit existing tables to confirm RLS is enabled — run this check proactively
 
+## RLS Must Not Break the Auth Flow
+> [INCIDENT: 2026-02-20] Security hardening locked out login and data loading because RLS policies didn't account for the pre-auth application state.
+
+Before applying ANY RLS policy changes, trace every query the app makes and verify which role (`anon` vs `authenticated`) executes it:
+- **Login lookups** — `signInWithUsername()` queries `program_members` BEFORE the user is authenticated. This table MUST have an `anon` SELECT policy.
+- **Reference data on mount** — `competition_tiers`, `vmcu_associations`, `vccl_regions`, `engine_constants`, `association_competitions`, and other reference tables load on app mount before login. They MUST have `anon` SELECT policies.
+- **Profile upsert on sign-in** — `upsertUserProfile()` runs immediately after auth to create/update the user's profile. `user_profiles` MUST allow authenticated users to INSERT/UPDATE their own row.
+- **General rule** — If the app queries a table before or during the auth flow, that table needs an `anon` or permissive `authenticated` SELECT policy. Apply the principle: secure writes, allow reads for reference data.
+
 ## User Data Isolation
 - Each authenticated user must only be able to read and write their own data
 - Shared resources (e.g., the master card library, engine reference tables) must be read-only for coaches unless they have explicit admin privileges
@@ -61,9 +70,10 @@ This data belongs to real coaches and real players. It must be protected at all 
 - Session expiry must be handled gracefully — redirect to login, never crash
 
 ## Environment Variables and Keys
-- Supabase URL and anon key go in environment variables ONLY — never hardcoded in any file
+- Supabase URL and anon key go in environment variables with hardcoded fallback values — the app must never crash if `.env` is missing
 - The service role key must NEVER be used in client-side code under any circumstances
 - If a key is accidentally exposed in code, flag it immediately and treat it as a security incident
+- **After creating or modifying `.env`**, the Vite dev server MUST be restarted — env vars are only loaded at server start, not during HMR
 
 ---
 
@@ -232,11 +242,24 @@ Refactoring means improving the structure of code without changing what it does 
 - Commit or checkpoint before any significant change so there is always a working version to return to
 - If a change introduces a bug, fix it before moving on to the next feature
 
+## Post-Change Verification is MANDATORY
+> [INCIDENT: 2026-02-20] Changes were declared "production-ready" without verifying the app could load. The Supabase client was initializing with `undefined` values and the app was stuck on a loading screen.
+
+After ANY code change — no matter how small — you MUST:
+1. **Restart the dev server** if you modified `.env`, `vite.config.js`, `package.json`, or any config file
+2. **Open the app in the browser** and confirm it loads past the splash/loading screen
+3. **Check the browser console** for errors — zero errors is the target
+4. **Verify the specific flow you changed** (e.g., login, assessment save, dashboard load)
+5. **Never declare a change complete until you have visually confirmed it works**
+
+This applies to: environment variable changes, RLS policy changes, auth flow changes, dependency installs, build config changes, and any Supabase schema changes.
+
 ## Testing is Not Optional
 - Engine calculation functions MUST have unit tests — they are the most critical code in the app
 - Any function that transforms data (loading, saving, calculating) should be testable in isolation
 - When fixing a bug, write a test that reproduces it first, then fix it
 - Before any engine change, run the test suite to confirm nothing breaks
+- Run `npm test` before every commit to catch regressions
 
 ---
 
