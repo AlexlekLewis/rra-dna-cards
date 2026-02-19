@@ -74,40 +74,43 @@ export default function App() {
   // ═══ AUTH EFFECTS ═══
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      try {
-        const s = await getSession();
-        if (cancelled) return;
-        setSession(s);
-        if (s?.user) {
-          // Try to upsert profile (handles returning users + new sign-ups)
-          try {
-            const profile = await upsertUserProfile(s.user);
-            if (!cancelled) setUserProfile(profile);
-          } catch (e) {
-            // If upsert fails, try just loading
-            const profile = await loadUserProfile(s.user.id);
-            if (!cancelled) setUserProfile(profile);
-          }
-        }
-      } catch (e) {
-        console.error('Auth init error:', e);
-      } finally {
-        if (!cancelled) setAuthLoading(false);
-      }
-    })();
 
+    // Helper: resolve profile from session
+    const resolveProfile = async (user) => {
+      try {
+        return await upsertUserProfile(user);
+      } catch {
+        try { return await loadUserProfile(user.id); } catch { return null; }
+      }
+    };
+
+    // Race getSession against a timeout — never block the login screen
+    const AUTH_TIMEOUT_MS = 3000;
+    const sessionPromise = getSession();
+    const timeoutPromise = new Promise(r => setTimeout(() => r(null), AUTH_TIMEOUT_MS));
+
+    Promise.race([sessionPromise, timeoutPromise]).then(async (s) => {
+      if (cancelled) return;
+      if (s?.user) {
+        setSession(s);
+        const profile = await resolveProfile(s.user);
+        if (!cancelled) setUserProfile(profile);
+      }
+      if (!cancelled) setAuthLoading(false);
+    }).catch((e) => {
+      console.error('Auth init error:', e);
+      if (!cancelled) setAuthLoading(false);
+    });
+
+    // If getSession resolves AFTER the timeout with a valid session,
+    // the onAuthStateChange listener below will pick it up seamlessly.
     const sub = onAuthStateChange(async (event, s) => {
       if (cancelled) return;
       setSession(s);
-      if (event === 'SIGNED_IN' && s?.user) {
-        try {
-          const profile = await upsertUserProfile(s.user);
-          if (!cancelled) setUserProfile(profile);
-        } catch (e) {
-          const profile = await loadUserProfile(s.user.id);
-          if (!cancelled) setUserProfile(profile);
-        }
+      if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && s?.user) {
+        const profile = await resolveProfile(s.user);
+        if (!cancelled) setUserProfile(profile);
+        if (!cancelled) setAuthLoading(false);
       }
       if (event === 'SIGNED_OUT') {
         setUserProfile(null);
