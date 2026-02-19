@@ -1227,7 +1227,7 @@ export default function AdminDashboard({
 
     return (
         <div style={S.page} onClick={() => tipOpen && setTipOpen(null)}>
-            <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;0,800;0,900&display=swap" rel="stylesheet" />
+
 
             {/* CSS Keyframe Animations */}
             <style ref={styleRef}>{`

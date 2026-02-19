@@ -720,7 +720,7 @@ export default function CoachDashboard({
     // ═══ MAIN RENDER ═══
     return (
         <div style={{ minHeight: "100vh", fontFamily: F, background: dbBg }} onClick={() => tipOpen && setTipOpen(null)}>
-            <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;0,800;0,900&display=swap" rel="stylesheet" />
+
 
             {/* Header */}
             <div style={{ ...sGrad, padding: "14px 16px 12px", position: "relative", overflow: "hidden" }}>

@@ -7,8 +7,10 @@ export async function loadPlayersFromDB() {
     if (pErr) { console.error('Load players error:', pErr); return []; }
     const playerIds = pRows.map(p => p.id);
     if (!playerIds.length) return [];
-    const { data: gRows } = await supabase.from('competition_grades').select('*').in('player_id', playerIds).order('sort_order');
-    const { data: aRows } = await supabase.from('coach_assessments').select('*').in('player_id', playerIds);
+    const [{ data: gRows }, { data: aRows }] = await Promise.all([
+        supabase.from('competition_grades').select('*').in('player_id', playerIds).order('sort_order'),
+        supabase.from('coach_assessments').select('*').in('player_id', playerIds)
+    ]);
     return pRows.map(p => {
         const grades = (gRows || []).filter(g => g.player_id === p.id).map(g => ({
             level: g.level, ageGroup: g.age_group, shield: g.shield, team: g.team, association: g.association,
@@ -105,9 +107,7 @@ export async function saveAssessmentToDB(playerId, cd) {
         plan_explore: cd.pl_explore || null, plan_challenge: cd.pl_challenge || null, plan_execute: cd.pl_execute || null,
         squad_rec: cd.sqRec || null, updated_at: new Date().toISOString()
     };
-    const { data: existing } = await supabase.from('coach_assessments').select('id').eq('player_id', playerId).maybeSingle();
-    if (existing) { await supabase.from('coach_assessments').update(row).eq('id', existing.id); }
-    else { await supabase.from('coach_assessments').insert(row); }
+    await supabase.from('coach_assessments').upsert(row, { onConflict: 'player_id' });
 }
 
 // ═══ CALIBRATION DATA LOADERS ═══

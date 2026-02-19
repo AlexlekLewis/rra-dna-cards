@@ -211,7 +211,7 @@ export default function App() {
   // ═══ SPLASH / AUTH SCREEN ═══
   if (authLoading) return (
     <div style={{ minHeight: "100vh", ...sGrad, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;0,800;0,900&display=swap" rel="stylesheet" />
+
       <img src={LOGO} alt="" style={{ width: 80, height: 80, objectFit: "contain", marginBottom: 16, filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.3))" }} />
       <div style={{ fontSize: 13, color: "rgba(255,255,255,0.5)", fontFamily: F, fontWeight: 600 }}>Loading...</div>
     </div>
@@ -219,7 +219,7 @@ export default function App() {
 
   if (!portal) return (
     <div style={{ minHeight: "100vh", ...sGrad, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 24 }}>
-      <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;0,800;0,900&display=swap" rel="stylesheet" />
+
       <img src={LOGO} alt="" style={{ width: 100, height: 100, objectFit: "contain", marginBottom: 20, filter: "drop-shadow(0 4px 12px rgba(0,0,0,0.3))" }} />
       <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", letterSpacing: 3, textTransform: "uppercase", fontFamily: F }}>Rajasthan Royals Academy</div>
       <div style={{ fontSize: 26, fontWeight: 900, color: B.w, fontFamily: F, textAlign: "center", marginTop: 4 }}>Player DNA Report</div>
@@ -515,7 +515,7 @@ export default function App() {
     };
 
     return (<div style={{ minHeight: "100vh", fontFamily: F, background: B.g50 }}>
-      <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;0,800;0,900&display=swap" rel="stylesheet" />
+
       <Hdr label="PLAYER ONBOARDING" />
       {/* Sign-out bar */}
       <div style={{ padding: '4px 12px', background: B.g100, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -594,7 +594,7 @@ export default function App() {
 
     // LIST
     if (cView === "list") return (<div style={{ minHeight: "100vh", fontFamily: F, background: B.g50 }}>
-      <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;0,800;0,900&display=swap" rel="stylesheet" />
+
       <Hdr label="COACH PORTAL" />
       <div style={{ padding: '4px 12px', background: B.g100, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -654,7 +654,7 @@ export default function App() {
       const ccmR = calcCCM(sp.grades, sp.dob, compTiers, engineConst);
       const a = getAge(sp.dob), br = getBracket(sp.dob), ro = ROLES.find(r => r.id === sp.role);
       return (<div style={{ minHeight: "100vh", fontFamily: F, background: B.g50 }}>
-        <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;0,800;0,900&display=swap" rel="stylesheet" />
+
         <Hdr label="COACH PORTAL" />
         <div style={{ padding: 12, ...dkWrap }}>
           <div style={{ background: `linear-gradient(135deg,${B.nvD},${B.nv})`, borderRadius: 14, padding: 16, marginBottom: 12, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
@@ -899,7 +899,7 @@ export default function App() {
       const ini = sp.name ? sp.name.split(" ").map(w => w[0]).join("").slice(0, 2) : "?";
 
       return (<div style={{ minHeight: "100vh", fontFamily: F, background: B.g50 }}>
-        <link href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,600;0,700;0,800;0,900&display=swap" rel="stylesheet" />
+
         <Hdr label="COACH PORTAL" />
         <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 12px", background: B.w, borderBottom: `1px solid ${B.g200}` }}>
           <div style={{ width: 30, height: 30, borderRadius: "50%", ...sGrad, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
