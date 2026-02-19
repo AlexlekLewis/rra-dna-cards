@@ -75,13 +75,26 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
 
-    // Helper: resolve profile from session
+    // Helper: resolve profile from session, with a timeout to prevent hangs
+    const PROFILE_TIMEOUT_MS = 5000;
     const resolveProfile = async (user) => {
-      try {
-        return await upsertUserProfile(user);
-      } catch {
-        try { return await loadUserProfile(user.id); } catch { return null; }
-      }
+      const profilePromise = (async () => {
+        try {
+          return await upsertUserProfile(user);
+        } catch (e) {
+          console.warn('upsertUserProfile failed, trying load:', e.message);
+          try { return await loadUserProfile(user.id); } catch { return null; }
+        }
+      })();
+      const timeout = new Promise(r => setTimeout(() => r(null), PROFILE_TIMEOUT_MS));
+      return Promise.race([profilePromise, timeout]);
+    };
+
+    // Build a minimal fallback profile from localStorage role
+    const buildFallbackProfile = (user) => {
+      const role = localStorage.getItem('rra_pending_role') || localStorage.getItem('rra_user_role');
+      if (role) return { id: user.id, role };
+      return null;
     };
 
     // Race getSession against a timeout — never block the login screen
@@ -94,7 +107,7 @@ export default function App() {
       if (s?.user) {
         setSession(s);
         const profile = await resolveProfile(s.user);
-        if (!cancelled) setUserProfile(profile);
+        if (!cancelled) setUserProfile(profile || buildFallbackProfile(s.user));
       }
       if (!cancelled) setAuthLoading(false);
     }).catch((e) => {
@@ -108,8 +121,14 @@ export default function App() {
       if (cancelled) return;
       setSession(s);
       if ((event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') && s?.user) {
+        // Immediately set a fallback profile so the UI transitions instantly
+        const fallback = buildFallbackProfile(s.user);
+        if (!cancelled && fallback) setUserProfile(fallback);
+        if (!cancelled) setAuthStep('login'); // reset signing-in spinner
+
+        // Then resolve the full profile in the background
         const profile = await resolveProfile(s.user);
-        if (!cancelled) setUserProfile(profile);
+        if (!cancelled && profile) setUserProfile(profile);
         if (!cancelled) setAuthLoading(false);
       }
       if (event === 'SIGNED_OUT') {
