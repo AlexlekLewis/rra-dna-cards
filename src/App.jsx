@@ -85,7 +85,7 @@ export default function App() {
     };
 
     // Race getSession against a timeout — never block the login screen
-    const AUTH_TIMEOUT_MS = 3000;
+    const AUTH_TIMEOUT_MS = 1500;
     const sessionPromise = getSession();
     const timeoutPromise = new Promise(r => setTimeout(() => r(null), AUTH_TIMEOUT_MS));
 
