@@ -416,6 +416,14 @@ Rule:
 - After adding any new JSONB field, trace every reader of that field and confirm it parses the correct structure
 - Write a comment in the reader noting the expected shape (e.g., `// Expected shape: { steps: { 0: { completed, durationMs, completedAt } }, totalTimeMs, percentComplete }`)
 
+### TRAP 10: React Hooks Must Be Top-Level (BLANK PAGE CRASH)
+> [INCIDENT: 2026-02-21] The fix for TRAP 8 placed a `useRef()` call inside a conditional block (`if (cView === "assess")`). This violated React's Rules of Hooks, crashing the app with a blank white page. The fix was to move the ref declaration to the top level alongside other refs.
+
+Rule:
+- **All `useState`, `useRef`, `useEffect`, `useMemo`, `useCallback` calls must be at the top level of the component** — never inside `if`, `for`, or any conditional block
+- When fixing bugs that need refs or state inside conditionals, declare the hook at the top and only update `.current` or the setter inside the conditional
+- This is a compile-time-invisible error that manifests as a blank white page — always test in browser after any change involving hooks
+
 ---
 
 # HARD STOPS — PAUSE AND FLAG IMMEDIATELY IF ASKED TO:

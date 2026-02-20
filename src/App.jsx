@@ -64,6 +64,7 @@ export default function App() {
   const [pd, setPd] = useState({ grades: [{}], topBat: [{}], topBowl: [{}] });
   const pu = (k, v) => setPd(d => ({ ...d, [k]: v }));
   const stepStartRef = useRef(Date.now());
+  const pendingCdRef = useRef({});
 
   // ── Abandon tracking: fire SURVEY_ABANDON if player leaves mid-onboarding ──
   useEffect(() => {
@@ -928,8 +929,7 @@ export default function App() {
     // ASSESSMENT
     if (cView === "assess" && sp) {
       const cd = sp.cd || {};
-      // pendingCdRef always holds the latest accumulated cd to avoid stale closures in debounced save
-      const pendingCdRef = useRef(cd);
+      // Sync ref to latest cd so debounced save always has current data
       pendingCdRef.current = cd;
       const cU = (k, v) => {
         setPlayers(ps => ps.map(p => p.id === sp.id ? { ...p, cd: { ...p.cd, [k]: v } } : p));
