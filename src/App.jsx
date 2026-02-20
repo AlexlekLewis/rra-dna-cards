@@ -18,6 +18,7 @@ function useSessionState(key, defaultValue) {
 import { supabase } from "./supabaseClient";
 import CoachDashboard from "./CoachDashboard";
 import AdminDashboard from "./AdminDashboard";
+import EliteProgram from "./coach/EliteProgram";
 import { trackEvent, EVT } from "./analytics/tracker";
 import { signInWithUsername, signOut, getSession, onAuthStateChange, upsertUserProfile, loadUserProfile } from "./auth/authHelpers";
 
@@ -595,6 +596,15 @@ export default function App() {
       />
     );
 
+    // ELITE PROGRAM
+    if (cView === "program") return (
+      <EliteProgram
+        session={session}
+        isAdmin={isAdmin}
+        onBack={() => { setCView("list"); goTop(); }}
+      />
+    );
+
     // DASHBOARD
     if (cView === "dashboard") return (
       <CoachDashboard
@@ -637,7 +647,10 @@ export default function App() {
       <div style={{ padding: 12, ...dkWrap }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
           <SecH title={`Player Roster (${players.filter(p => p.submitted).length})`} sub="Tap player to view survey or assess" />
-          <button onClick={() => { setCView("dashboard"); goTop(); }} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: `linear-gradient(135deg,${B.bl},${B.pk})`, fontSize: 11, fontWeight: 700, color: B.w, cursor: "pointer", fontFamily: F, whiteSpace: "nowrap" }}>📊 Dashboard</button>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={() => { setCView("program"); goTop(); }} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: `linear-gradient(135deg,${B.nvD},${B.bl})`, fontSize: 11, fontWeight: 700, color: B.w, cursor: "pointer", fontFamily: F, whiteSpace: "nowrap" }}>📋 Elite Program</button>
+            <button onClick={() => { setCView("dashboard"); goTop(); }} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: `linear-gradient(135deg,${B.bl},${B.pk})`, fontSize: 11, fontWeight: 700, color: B.w, cursor: "pointer", fontFamily: F, whiteSpace: "nowrap" }}>📊 Dashboard</button>
+          </div>
         </div>
         <div style={_isDesktop ? { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 } : {}}>
           {players.filter(p => p.submitted).map(p => {
