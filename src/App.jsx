@@ -19,12 +19,14 @@ import { supabase } from "./supabaseClient";
 import CoachDashboard from "./CoachDashboard";
 import AdminDashboard from "./AdminDashboard";
 import EliteProgram from "./coach/EliteProgram";
+import ReportCard from "./coach/ReportCard";
+import { generateReportPDF } from "./coach/reportGenerator";
 import { trackEvent, EVT } from "./analytics/tracker";
 import { signInWithUsername, signOut, getSession, onAuthStateChange, upsertUserProfile, loadUserProfile } from "./auth/authHelpers";
 
 // ═══ DATA MODULES ═══
 import { B, F, LOGO, sGrad, sCard, _isDesktop, dkWrap } from "./data/theme";
-import { ROLES, BAT_ARCH, BWL_ARCH, BAT_ITEMS, PACE_ITEMS, SPIN_ITEMS, KEEP_ITEMS, IQ_ITEMS, MN_ITEMS, PH_MAP, PHASES, VOICE_QS } from "./data/skillItems";
+import { ROLES, BAT_ARCH, BWL_ARCH, BAT_ITEMS, PACE_ITEMS, SPIN_ITEMS, KEEP_ITEMS, IQ_ITEMS, MN_ITEMS, PH_MAP, PHASES, VOICE_QS, BAT_POSITIONS, BATTING_PHASE_PREFS, BOWLING_PHASE_PREFS, BOWLING_SPEEDS, GOTO_SHOTS, PACE_VARIATIONS, SPIN_VARIATIONS } from "./data/skillItems";
 import { FALLBACK_ASSOCS, FMTS, BAT_H, BWL_T } from "./data/competitionData";
 import { FALLBACK_RW, FALLBACK_CONST } from "./data/fallbacks";
 import { MOCK } from "./data/mockPlayers";
@@ -58,11 +60,26 @@ export default function App() {
   const [players, setPlayers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [pStep, setPStep] = useSessionState('rra_pStep', 0);
+  const [showOnboardGuide, setShowOnboardGuide] = useSessionState('rra_obGuide', true);
   const [pd, setPd] = useState({ grades: [{}], topBat: [{}], topBowl: [{}] });
   const pu = (k, v) => setPd(d => ({ ...d, [k]: v }));
+  const stepStartRef = useRef(Date.now());
+
+  // ── Abandon tracking: fire SURVEY_ABANDON if player leaves mid-onboarding ──
+  useEffect(() => {
+    const handleUnload = () => {
+      if (portal === 'player' && pStep > 0 && pStep < 7) {
+        trackEvent(EVT.SURVEY_ABANDON, { step: pStep, elapsed: Date.now() - stepStartRef.current });
+      }
+    };
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, [portal, pStep]);
+
   const [selP, setSelP] = useSessionState('rra_selP', null);
   const [cView, setCView] = useSessionState('rra_cView', "list");
   const [cPage, setCPage] = useSessionState('rra_cPage', 0);
+  const [reportPlayer, setReportPlayer] = useState(null);
   const saveTimer = useRef(null);
   // Engine reference data from Supabase
   const [compTiers, setCompTiers] = useState([]);
@@ -299,9 +316,27 @@ export default function App() {
 
   // ═══ PLAYER PORTAL ═══
   if (portal === "player") {
-    const stpN = ["Profile", "Competition History", "Playing Style", "Self-Assessment", "Player Voice", "Medical & Goals", "Review"];
+    const stpN = ["Profile", "Competition History", "T20 Identity", "Self-Assessment", "Player Voice", "Medical & Goals", "Review"];
     const age = getAge(pd.dob);
     const show16 = age && age >= 16;
+    const rid = ROLES.find(r => r.label === pd.role)?.id || 'batter';
+    const hasBowling = ['pace', 'spin', 'allrounder'].includes(rid);
+    const isPace = ['pace', 'allrounder'].includes(rid);
+
+    // ── Onboarding step timer ──
+    const advanceStep = (next) => {
+      const elapsed = Date.now() - stepStartRef.current;
+      const progress = pd.onboardingProgress || { steps: {}, totalTimeMs: 0, lastStepReached: 0 };
+      progress.steps[pStep] = { completed: true, durationMs: elapsed, completedAt: new Date().toISOString() };
+      progress.totalTimeMs = (progress.totalTimeMs || 0) + elapsed;
+      progress.lastStepReached = Math.max(progress.lastStepReached || 0, next);
+      progress.percentComplete = Math.round((next / (stpN.length - 1)) * 100);
+      pu('onboardingProgress', progress);
+      trackEvent(EVT.SURVEY_STEP || 'survey_step', { step: pStep, stepName: stpN[pStep], durationMs: elapsed });
+      stepStartRef.current = Date.now();
+      setPStep(next);
+      goTop();
+    };
 
     const renderP = () => {
       if (pStep === 0) return (
@@ -475,18 +510,85 @@ export default function App() {
         </div>);
       }
 
-      if (pStep === 2) return (<div style={sCard}>
-        <SecH title="Playing Style" />
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "0 12px" }}>
-          <Sel half label="Primary Role" value={pd.role} onChange={v => pu("role", v)} opts={ROLES.map(r => r.label)} />
-          <Sel half label="Batting Hand" value={pd.bat} onChange={v => pu("bat", v)} opts={BAT_H} />
-          <Sel half label="Bowling Type" value={pd.bowl} onChange={v => pu("bowl", v)} opts={BWL_T} />
-        </div>
-      </div>);
+      if (pStep === 2) {
+        const ChipSelect = ({ options, selected, onToggle, color }) => (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 4, marginBottom: 8 }}>
+            {options.map(o => {
+              const sel = (selected || []).includes(typeof o === 'string' ? o : o.id); return (
+                <button key={typeof o === 'string' ? o : o.id} onClick={() => { const id = typeof o === 'string' ? o : o.id; const cur = selected || []; onToggle(sel ? cur.filter(x => x !== id) : [...cur, id]); }}
+                  style={{ padding: '6px 12px', borderRadius: 20, border: `1.5px solid ${sel ? color : B.g200}`, background: sel ? `${color}18` : B.w, color: sel ? color : B.g600, fontSize: 10, fontWeight: sel ? 700 : 500, fontFamily: F, cursor: 'pointer', transition: 'all 0.15s' }}
+                >{typeof o === 'string' ? o : `${o.icon || ''} ${o.label}`.trim()}</button>
+              );
+            })}
+          </div>
+        );
+        const ArchCard = ({ arch, selected, onSelect }) => (
+          <div onClick={() => onSelect(arch.id)} style={{ ...sCard, borderLeft: `3px solid ${selected === arch.id ? arch.c : B.g200}`, background: selected === arch.id ? `${arch.c}08` : B.w, cursor: 'pointer', padding: '10px 12px', transition: 'all 0.15s' }}>
+            <div style={{ fontSize: 11, fontWeight: 800, color: selected === arch.id ? arch.c : B.nvD, fontFamily: F }}>{arch.nm}</div>
+            <div style={{ fontSize: 9, color: B.g600, fontFamily: F, marginTop: 2 }}>{arch.sub}</div>
+          </div>
+        );
+        return (<div>
+          <div style={sCard}>
+            <SecH title="Playing Style" />
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0 12px' }}>
+              <Sel half label="Primary Role" value={pd.role} onChange={v => pu('role', v)} opts={ROLES.map(r => r.label)} />
+              <Sel half label="Batting Hand" value={pd.bat} onChange={v => pu('bat', v)} opts={BAT_H} />
+              <Sel half label="Bowling Type" value={pd.bowl} onChange={v => pu('bowl', v)} opts={BWL_T} />
+            </div>
+          </div>
+
+          {/* ═══ BATTING IDENTITY ═══ */}
+          <div style={{ ...sCard, borderLeft: `3px solid ${B.pk}` }}>
+            <SecH title="Your Batting Game" sub="Help us understand your batting style and strengths" />
+            <Sel half label="Batting Position" value={pd.batPosition} onChange={v => pu('batPosition', v)} opts={BAT_POSITIONS.map(p => p.label)} />
+            <div style={{ fontSize: 10, fontWeight: 700, color: B.pk, fontFamily: F, marginTop: 10, marginBottom: 4 }}>Preferred Batting Phases</div>
+            <div style={{ fontSize: 9, color: B.g400, fontFamily: F, marginBottom: 4 }}>When do you feel most dangerous?</div>
+            <ChipSelect options={BATTING_PHASE_PREFS} selected={pd.batPhases} onToggle={v => pu('batPhases', v)} color={B.pk} />
+            <div style={{ fontSize: 10, fontWeight: 700, color: B.pk, fontFamily: F, marginTop: 8, marginBottom: 4 }}>Go-To Shots</div>
+            <div style={{ fontSize: 9, color: B.g400, fontFamily: F, marginBottom: 4 }}>Select the shots you back yourself to play under pressure</div>
+            <ChipSelect options={GOTO_SHOTS} selected={pd.gotoShots} onToggle={v => pu('gotoShots', v)} color={B.pk} />
+            <Inp label="Pressure Shot" value={pd.pressureShot} onChange={v => pu('pressureShot', v)} ph="What's your go-to shot when you need runs?" />
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8 }}>
+              <div style={{ flex: '1 1 120px' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: B.pk, fontFamily: F, marginBottom: 4 }}>Comfort vs Spin</div>
+                <Dots value={pd.spinComfort} onChange={v => pu('spinComfort', v)} color={B.pk} />
+              </div>
+              <div style={{ flex: '1 1 120px' }}>
+                <div style={{ fontSize: 10, fontWeight: 700, color: B.pk, fontFamily: F, marginBottom: 4 }}>Comfort vs Short Ball</div>
+                <Dots value={pd.shortBallComfort} onChange={v => pu('shortBallComfort', v)} color={B.pk} />
+              </div>
+            </div>
+            <div style={{ fontSize: 10, fontWeight: 700, color: B.pk, fontFamily: F, marginTop: 12, marginBottom: 6 }}>Which batting archetype best describes you?</div>
+            {BAT_ARCH.map(a => <ArchCard key={a.id} arch={a} selected={pd.playerBatArch} onSelect={v => pu('playerBatArch', v)} />)}
+          </div>
+
+          {/* ═══ BOWLING IDENTITY (only if role includes bowling) ═══ */}
+          {hasBowling && <div style={{ ...sCard, borderLeft: `3px solid ${B.bl}` }}>
+            <SecH title="Your Bowling Game" sub="Help us understand your bowling weapons" />
+            <div style={{ fontSize: 10, fontWeight: 700, color: B.bl, fontFamily: F, marginTop: 4, marginBottom: 4 }}>Preferred Bowling Phases</div>
+            <div style={{ fontSize: 9, color: B.g400, fontFamily: F, marginBottom: 4 }}>When do you want the ball?</div>
+            <ChipSelect options={BOWLING_PHASE_PREFS} selected={pd.bwlPhases} onToggle={v => pu('bwlPhases', v)} color={B.bl} />
+            {isPace && <Sel half label="Bowling Speed" value={pd.bwlSpeed} onChange={v => pu('bwlSpeed', v)} opts={BOWLING_SPEEDS.map(s => s.label)} />}
+            <div style={{ fontSize: 10, fontWeight: 700, color: B.bl, fontFamily: F, marginTop: 8, marginBottom: 4 }}>Bowling Variations</div>
+            <div style={{ fontSize: 9, color: B.g400, fontFamily: F, marginBottom: 4 }}>Which deliveries do you have in your toolkit?</div>
+            <ChipSelect options={isPace ? PACE_VARIATIONS : SPIN_VARIATIONS} selected={pd.bwlVariations} onToggle={v => pu('bwlVariations', v)} color={B.bl} />
+            <Inp label="Shut-Down Delivery" value={pd.shutdownDelivery} onChange={v => pu('shutdownDelivery', v)} ph="What's your go-to delivery under pressure?" />
+            <div style={{ fontSize: 10, fontWeight: 700, color: B.bl, fontFamily: F, marginTop: 12, marginBottom: 6 }}>Which bowling archetype best describes you?</div>
+            {BWL_ARCH.map(a => <ArchCard key={a.id} arch={a} selected={pd.playerBwlArch} onSelect={v => pu('playerBwlArch', v)} />)}
+          </div>}
+
+          {/* ═══ ABOUT YOU ═══ */}
+          <div style={sCard}>
+            <SecH title="About You" />
+            <NumInp label="Height (cm)" value={pd.heightCm} onChange={v => pu('heightCm', v)} w={80} />
+          </div>
+        </div>);
+      }
 
       if (pStep === 3) {
-        const rid = ROLES.find(r => r.label === pd.role)?.id || 'batter';
         const sT = techItems(rid);
+        const phItems = PH_MAP[rid] || PH_MAP.batter;
         return (<div style={sCard}>
           <SecH title="Self-Assessment" sub="There are no wrong answers here — just rate yourself honestly (1-5) based on where you feel your game is right now. This is about self-awareness and understanding your own strengths and areas to grow." />
           <div style={{ fontSize: 9, color: B.g400, fontFamily: F, marginBottom: 6 }}>1=Developing 2=Emerging 3=Competent 4=Advanced 5=Elite</div>
@@ -496,6 +598,23 @@ export default function App() {
           {IQ_ITEMS.map((item, i) => <AssRow key={item} label={item} value={pd[`sr_iq_${i}`]} onR={v => pu(`sr_iq_${i}`, v)} color={B.sky} />)}
           <div style={{ fontSize: 11, fontWeight: 700, color: B.prp, fontFamily: F, marginBottom: 6, marginTop: 10 }}>Mental & Character</div>
           {MN_ITEMS.map((item, i) => <AssRow key={item} label={item} value={pd[`sr_mn_${i}`]} onR={v => pu(`sr_mn_${i}`, v)} color={B.prp} />)}
+
+          {/* ═══ PHYSICAL SELF-ASSESSMENT (v2) ═══ */}
+          <div style={{ borderTop: `2px solid ${B.g200}`, marginTop: 16, paddingTop: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: B.org, fontFamily: F, marginBottom: 6 }}>Physical & Athletic</div>
+            <div style={{ fontSize: 9, color: B.g400, fontFamily: F, marginBottom: 6 }}>How would you rate your physical capabilities?</div>
+            {phItems.map((item, i) => <AssRow key={item} label={item} value={pd[`sr_ph_${i}`]} onR={v => pu(`sr_ph_${i}`, v)} color={B.org} />)}
+          </div>
+
+          {/* ═══ PHASE SELF-ASSESSMENT (v2) ═══ */}
+          <div style={{ borderTop: `2px solid ${B.g200}`, marginTop: 16, paddingTop: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: B.grn, fontFamily: F, marginBottom: 6 }}>Phase Effectiveness</div>
+            <div style={{ fontSize: 9, color: B.g400, fontFamily: F, marginBottom: 6 }}>Rate your effectiveness in each phase of the game (1-5)</div>
+            <div style={{ fontSize: 10, fontWeight: 600, color: B.pk, fontFamily: F, marginTop: 8, marginBottom: 4 }}>Batting</div>
+            {PHASES.map(p => <AssRow key={`pb_${p.id}`} label={p.nm} value={pd[`sr_pb_${p.id}`]} onR={v => pu(`sr_pb_${p.id}`, v)} color={B.pk} />)}
+            {hasBowling && <><div style={{ fontSize: 10, fontWeight: 600, color: B.bl, fontFamily: F, marginTop: 8, marginBottom: 4 }}>Bowling</div>
+              {PHASES.map(p => <AssRow key={`pw_${p.id}`} label={p.nm} value={pd[`sr_pw_${p.id}`]} onR={v => pu(`sr_pw_${p.id}`, v)} color={B.bl} />)}</>}
+          </div>
         </div>);
       }
 
@@ -549,6 +668,36 @@ export default function App() {
         <div style={{ fontSize: 9, color: B.g400, fontFamily: F }}>{session?.user?.email}</div>
         <button onClick={handleSignOut} style={{ fontSize: 9, fontWeight: 600, color: B.red, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F }}>Sign Out</button>
       </div>
+
+      {/* ═══ PROFILE UPDATE BANNER (v1 → v2) ═══ */}
+      {pd.profileVersion === 1 && pd.submitted && pStep === 0 && <div style={{ margin: '8px 12px', padding: '12px 16px', background: `${B.bl}12`, border: `1px solid ${B.bl}40`, borderRadius: 10 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: B.bl, fontFamily: F, marginBottom: 4 }}>🆕 New DNA Fields Available</div>
+        <div style={{ fontSize: 10, color: B.g600, fontFamily: F, lineHeight: 1.5 }}>We've added new questions about your T20 game, physical profile, and phase preferences. Fill them in to give your coaches a better picture of who you are.</div>
+        <button onClick={() => { trackEvent(EVT.PROFILE_UPDATE_START, {}); setPStep(2); goTop(); }} style={{ marginTop: 8, padding: '6px 14px', borderRadius: 6, border: 'none', background: `linear-gradient(135deg,${B.bl},${B.pk})`, fontSize: 10, fontWeight: 700, color: B.w, cursor: 'pointer', fontFamily: F }}>Update My Profile →</button>
+      </div>}
+
+      {/* ═══ PRE-ONBOARDING GUIDANCE MODAL ═══ */}
+      {showOnboardGuide && pStep === 0 && <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)', padding: 20 }}>
+        <div style={{ background: B.w, borderRadius: 16, maxWidth: 420, width: '100%', padding: '32px 24px', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.3)' }}>
+          <div style={{ fontSize: 36, marginBottom: 12 }}>🏏</div>
+          <div style={{ fontSize: 18, fontWeight: 800, color: B.nvD, fontFamily: F, marginBottom: 8 }}>Welcome to Your DNA Profile</div>
+          <div style={{ fontSize: 12, color: B.g600, fontFamily: F, lineHeight: 1.6, marginBottom: 16, textAlign: 'left' }}>
+            This is <strong>not a test</strong>. There are no wrong answers.<br /><br />
+            What you're about to fill in helps your coaches understand you — your game, your style, and where you want to go. The more honest and accurate you are, the better we can tailor your coaching to help you grow.
+          </div>
+          <div style={{ background: B.g50, borderRadius: 10, padding: '14px 16px', textAlign: 'left', marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: B.nvD, fontFamily: F, marginBottom: 8 }}>Before you start:</div>
+            <div style={{ fontSize: 11, color: B.g600, fontFamily: F, lineHeight: 1.8 }}>
+              📱 Have your <strong>PlayHQ profile</strong> open so you can reference your stats<br />
+              ⏱️ Set aside <strong>15–20 minutes</strong> to complete this properly<br />
+              💭 Be honest — this is about painting an accurate picture of your game <em>right now</em>
+            </div>
+          </div>
+          <div style={{ fontSize: 10, color: B.g400, fontFamily: F, marginBottom: 16, fontStyle: 'italic' }}>Everything you share stays between you and your coaching team.</div>
+          <button onClick={() => setShowOnboardGuide(false)} style={{ ...btnSty(true, true), fontSize: 14, padding: '14px 24px' }}>Let's Go →</button>
+        </div>
+      </div>}
+
       {pStep < 7 && <div style={{ padding: "6px 12px", background: B.w, borderBottom: `1px solid ${B.g200}`, display: "flex", alignItems: "center", gap: 6 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: B.pk, fontFamily: F }}>STEP {pStep + 1}/7</div>
         <div style={{ fontSize: 11, fontWeight: 600, color: B.nvD, fontFamily: F }}>{stpN[pStep]}</div>
@@ -559,7 +708,7 @@ export default function App() {
       <div style={{ padding: 12, paddingBottom: pStep < 7 ? 70 : 12, ...dkWrap }}>{renderP()}</div>
       {pStep < 7 && <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: B.w, borderTop: `1px solid ${B.g200}`, padding: "8px 12px", display: "flex", justifyContent: "space-between", zIndex: 100 }}>
         <button onClick={() => { if (pStep > 0) { setPStep(s => s - 1); goTop(); } else handleSignOut(); }} style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${B.g200}`, background: "transparent", fontSize: 11, fontWeight: 600, color: B.g600, cursor: "pointer", fontFamily: F }}>← {pStep === 0 ? 'Sign Out' : 'Back'}</button>
-        <button onClick={() => { setPStep(s => Math.min(s + 1, 6)); goTop(); }} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: `linear-gradient(135deg,${B.bl},${B.pk})`, fontSize: 11, fontWeight: 700, color: B.w, cursor: "pointer", fontFamily: F }}>Next →</button>
+        <button onClick={() => advanceStep(Math.min(pStep + 1, 6))} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: `linear-gradient(135deg,${B.bl},${B.pk})`, fontSize: 11, fontWeight: 700, color: B.w, cursor: "pointer", fontFamily: F }}>Next →</button>
       </div>}
     </div>);
   }
@@ -960,8 +1109,22 @@ export default function App() {
         <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: B.w, borderTop: `1px solid ${B.g200}`, padding: "8px 12px", display: "flex", justifyContent: "space-between", zIndex: 100 }}>
           <button onClick={() => { if (cPage > 0) { setCPage(p => p - 1); goTop(); } else { setCView("survey"); goTop(); } }} style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${B.g200}`, background: "transparent", fontSize: 11, fontWeight: 600, color: B.g600, cursor: "pointer", fontFamily: F }}>← {cPage > 0 ? "Back" : "Survey"}</button>
           {cPage < 3 && <button onClick={() => { setCPage(p => p + 1); goTop(); }} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: `linear-gradient(135deg,${B.bl},${B.pk})`, fontSize: 11, fontWeight: 700, color: B.w, cursor: "pointer", fontFamily: F }}>Next →</button>}
+          {cPage === 3 && <button onClick={async () => {
+            setReportPlayer(sp);
+            // Wait for next render so ReportCard mounts
+            await new Promise(r => setTimeout(r, 300));
+            const el = document.getElementById('rra-report-card');
+            if (el) { try { await generateReportPDF(el, sp.name); } catch (e) { console.error('PDF generation error:', e); } }
+            setReportPlayer(null);
+          }} style={{ padding: '8px 14px', borderRadius: 6, border: `1px solid ${B.bl}`, background: 'transparent', fontSize: 11, fontWeight: 700, color: B.bl, cursor: 'pointer', fontFamily: F }}>📄 Generate Report</button>}
           {cPage === 3 && <button onClick={() => { setCView("list"); setSelP(null); goTop(); }} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: B.grn, fontSize: 11, fontWeight: 700, color: B.w, cursor: "pointer", fontFamily: F }}>✓ Done</button>}
         </div>
+
+        {/* Hidden ReportCard for PDF capture */}
+        {reportPlayer && <ReportCard player={reportPlayer} assessment={reportPlayer.cd} engine={{
+          overall: 0, pathway: 0, cohort: 0, agePct: 0, pdi: 0, grade: 3,
+          domains: [], strengths: [], growthAreas: [], sagi: {}, phaseScores: {}
+        }} />}
       </div>);
     }
   }

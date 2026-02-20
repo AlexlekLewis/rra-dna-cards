@@ -53,7 +53,16 @@ export async function loadPlayersFromDB() {
             id: p.id, name: p.name, dob: p.dob, club: p.club, assoc: p.association, role: p.role,
             bat: p.batting_hand, bowl: p.bowling_type, voice: p.voice_answers || [],
             grades, topBat, topBowl, injury: p.injury, goals: p.goals, submitted: p.submitted, cd,
-            gender: p.gender, self_ratings: p.self_ratings || {}
+            gender: p.gender, self_ratings: p.self_ratings || {},
+            // ── v2 profile enrichment ──
+            heightCm: p.height_cm, batPosition: p.batting_position,
+            batPhases: p.batting_phases, bwlPhases: p.bowling_phases,
+            bwlSpeed: p.bowling_speed, gotoShots: p.goto_shots,
+            pressureShot: p.pressure_shot, shutdownDelivery: p.shutdown_delivery,
+            bwlVariations: p.bowling_variations,
+            spinComfort: p.spin_comfort, shortBallComfort: p.short_ball_comfort,
+            playerBatArch: p.player_bat_archetype, playerBwlArch: p.player_bwl_archetype,
+            onboardingProgress: p.onboarding_progress, profileVersion: p.profile_version || 1,
         };
     });
 }
@@ -76,7 +85,23 @@ export async function savePlayerToDB(pd, authUserId) {
         parent_name: pd.parentName, parent_email: pd.parentEmail,
         injury: pd.injury, goals: pd.goals, gender: pd.gender || null,
         voice_answers: VOICE_QS.map((_, i) => pd[`v_${i}`] || ''),
-        self_ratings: selfRatings, top_batting_scores: topBatScores, top_bowling_figures: topBowlFigs, submitted: true
+        self_ratings: selfRatings, top_batting_scores: topBatScores, top_bowling_figures: topBowlFigs, submitted: true,
+        // ── v2 profile enrichment ──
+        height_cm: pd.heightCm ? +pd.heightCm : null,
+        batting_position: pd.batPosition || null,
+        batting_phases: pd.batPhases || null,
+        bowling_phases: pd.bwlPhases || null,
+        bowling_speed: pd.bwlSpeed || null,
+        goto_shots: pd.gotoShots || null,
+        pressure_shot: pd.pressureShot || null,
+        shutdown_delivery: pd.shutdownDelivery || null,
+        bowling_variations: pd.bwlVariations || null,
+        spin_comfort: pd.spinComfort ? +pd.spinComfort : null,
+        short_ball_comfort: pd.shortBallComfort ? +pd.shortBallComfort : null,
+        player_bat_archetype: pd.playerBatArch || null,
+        player_bwl_archetype: pd.playerBwlArch || null,
+        onboarding_progress: pd.onboardingProgress || null,
+        profile_version: 2,
     };
     if (authUserId) insertData.auth_user_id = authUserId;
     const { data: player, error: pErr } = await supabase.from('players').insert(insertData).select().single();

@@ -519,3 +519,27 @@ These guidelines must improve with every engineering check. Think of it like rev
 - Added Continuous Improvement section to `ENGINEERING_GUIDELINES.md`
 - Created `.agents/workflows/engineering-guidelines.md` pre-push workflow
 - Added Pre-Push Engineering Check section to `ENGINEERING_GUIDELINES.md`
+
+### Audit Log — 2026-02-21 (DNA Engine Enrichment Update)
+
+**Scope:** Expanded player onboarding, archetype taxonomy, analytics events, profile update mechanism, DNA report card PDF, and admin engagement columns.
+
+**Verification against implementation plan:**
+- ✅ Phase 1 — 6 APS/AGS tiers confirmed in DB, `competitionData.js` school group added
+- ✅ Phase 2 — Pre-onboarding modal, Step 2 T20 identity (batting/bowling/physical), Step 3 physical+phase self-assessment, step timing analytics
+- ✅ Phase 3 — 2 batting + 3 bowling archetypes appended (TRAP 1 compliant), data arrays added
+- ✅ Phase 4 — `SURVEY_STEP`/`SURVEY_ABANDON`/`PROFILE_UPDATE_*` events in tracker.js, `beforeunload` listener added, `loadMemberEngagement()` added to adminDb.js, engagement columns (Onboarding %, Profile Version) added to Members tab, profile update banner for v1 players
+- ✅ Phase 5 — ReportCard.jsx (3-page A4 landscape), reportGenerator.js (html2canvas+jsPDF), Generate Report button wired in PDI Summary
+
+**Results:**
+- ✅ Build passes (333 modules, 0 errors)
+- ✅ 43/43 engine tests pass
+- ✅ RLS audit: all data tables protected, 5 reference tables intentionally open
+- ✅ No `.env` files or secrets staged
+- ✅ 7 files changed, 478 insertions, 21 deletions
+
+**Observations:**
+- `AdminDashboard.jsx` is now ~1,800 lines — approaching monolith territory. Component splitting recommended before next major feature.
+- `App.jsx` is ~1,130 lines — player + coach portal in single file. Should consider extraction.
+- Bundle size 1,574 kB (gzip 470 kB) — chunk splitting should be implemented.
+

@@ -185,3 +185,32 @@ export async function loadDeletedMembers() {
     if (error) throw error;
     return data || [];
 }
+
+// ──────────────────────────────────
+// MEMBER ENGAGEMENT (player onboarding + profile data)
+// ──────────────────────────────────
+export async function loadMemberEngagement() {
+    const { data, error } = await supabase
+        .from('players')
+        .select('id, name, submitted, profile_version, onboarding_progress, created_at')
+        .order('name');
+    if (error) throw error;
+    return (data || []).map(p => ({
+        id: p.id,
+        name: p.name,
+        submitted: !!p.submitted,
+        profileVersion: p.profile_version || 1,
+        onboardingPct: (() => {
+            const prog = p.onboarding_progress;
+            if (!prog) return p.submitted ? 100 : 0;
+            const steps = Object.keys(prog).filter(k => k.startsWith('step_'));
+            return Math.round((steps.length / 7) * 100);
+        })(),
+        totalOnboardingTime: (() => {
+            const prog = p.onboarding_progress;
+            if (!prog) return null;
+            return Object.keys(prog).filter(k => k.startsWith('step_')).reduce((sum, k) => sum + (prog[k]?.elapsed || 0), 0);
+        })(),
+        joinDate: p.created_at,
+    }));
+}

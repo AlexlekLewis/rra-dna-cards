@@ -7,6 +7,7 @@ import {
     loadSquadGroups, createSquadGroup, updateSquadGroup, deleteSquadGroup,
     loadSquadAllocations, allocatePlayerToSquad, removePlayerFromSquad,
     loadAnalyticsEvents, loadProgramMembers, loadAllUserProfiles, updateProgramMember, loadDeletedMembers,
+    loadMemberEngagement,
 } from "./db/adminDb";
 import { supabase } from "./supabaseClient";
 import { trackEvent, EVT } from "./analytics/tracker";
@@ -128,6 +129,7 @@ export default function AdminDashboard({
     // ═══ MEMBER REMOVAL STATE ═══
     const [selectedIds, setSelectedIds] = useState(new Set());
     const [deletedMembers, setDeletedMembers] = useState([]);
+    const [memberEngagement, setMemberEngagement] = useState([]);
     const [memberView, setMemberView] = useState('active'); // 'active' | 'archived' | 'deleted'
     const [confirmModal, setConfirmModal] = useState(null); // { action, ids, confirmText }
     const [confirmInput, setConfirmInput] = useState('');
@@ -136,7 +138,7 @@ export default function AdminDashboard({
     const refresh = useCallback(async () => {
         setLoading(true);
         try {
-            const [c, dw, t, sg, sa, ev, pm, up, dm] = await Promise.all([
+            const [c, dw, t, sg, sa, ev, pm, up, dm, me] = await Promise.all([
                 loadEngineConstants(),
                 loadDomainWeights(),
                 loadCompetitionTiers(),
@@ -146,6 +148,7 @@ export default function AdminDashboard({
                 loadProgramMembers(),
                 loadAllUserProfiles(),
                 loadDeletedMembers(),
+                loadMemberEngagement(),
             ]);
             setDbConstants(c || []);
             setDbDomainWeights(dw || []);
@@ -155,6 +158,7 @@ export default function AdminDashboard({
             setAnalyticsEvents(ev || []);
             setMembers(pm || []);
             setDeletedMembers(dm || []);
+            setMemberEngagement(me || []);
             setUserProfiles(up || []);
         } catch (err) {
             console.error('[admin] load error:', err);
@@ -1232,7 +1236,7 @@ export default function AdminDashboard({
                                     <th style={{ padding: '8px 4px', width: 30 }}>
                                         <input type="checkbox" checked={displayList.length > 0 && displayList.every(m => selectedIds.has(m.id))} onChange={() => toggleSelectAll(displayList)} style={{ cursor: 'pointer' }} />
                                     </th>
-                                    {(memberView === 'deleted' ? ["Username", "Display Name", "Email", "Role", "Deleted", "Days Left", ""] : ["Username", "Display Name", "Email", "Role", "Season", "Credentials", ""]).map(h => (
+                                    {(memberView === 'deleted' ? ["Username", "Display Name", "Email", "Role", "Deleted", "Days Left", ""] : ["Username", "Display Name", "Email", "Role", "Onboarding", "Profile", "Credentials", ""]).map(h => (
                                         <th key={h} style={{ padding: "8px 6px", textAlign: "left", color: "rgba(255,255,255,0.5)", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
                                     ))}
                                 </tr>
@@ -1255,13 +1259,21 @@ export default function AdminDashboard({
                                                 <span style={S.badge(m.role === "coach" ? "#60a5fa" : "#22c55e")}>{m.role}</span>
                                             )}
                                         </td>
-                                        {memberView === 'deleted' ? (<>
+                                        {memberView !== 'deleted' && (() => {
+                                            const eng = memberEngagement.find(e => e.name === m.display_name);
+                                            const pct = eng?.onboardingPct || 0;
+                                            const pctColor = pct >= 100 ? '#22c55e' : pct > 0 ? '#f59e0b' : 'rgba(255,255,255,0.2)';
+                                            const ver = eng?.profileVersion || 1;
+                                            return (<>
+                                                <td style={{ padding: "8px 6px" }}><span style={{ ...S.badge(pctColor), minWidth: 32, textAlign: 'center' }}>{pct}%</span></td>
+                                                <td style={{ padding: "8px 6px" }}><span style={{ ...S.badge(ver >= 2 ? '#22c55e' : '#f59e0b'), fontSize: 9 }}>v{ver}</span></td>
+                                            </>);
+                                        })()}
+                                        {memberView === 'deleted' && <>
                                             <td style={{ padding: "8px 6px", color: "rgba(255,255,255,0.3)", fontSize: 10 }}>{new Date(m.deleted_at).toLocaleDateString()}</td>
                                             <td style={{ padding: "8px 6px" }}><span style={S.badge(daysRemaining(m.deleted_at) > 7 ? '#22c55e' : daysRemaining(m.deleted_at) > 3 ? '#f59e0b' : '#ef4444')}>{daysRemaining(m.deleted_at)}d</span></td>
-                                        </>) : (<>
-                                            <td style={{ padding: "8px 6px", color: "rgba(255,255,255,0.3)" }}>{m.season || "—"}</td>
-                                            <td style={{ padding: "8px 6px" }}><span style={S.badge(m.credentials_sent ? "#22c55e" : "#f59e0b")}>{m.credentials_sent ? "Sent" : "Pending"}</span></td>
-                                        </>)}
+                                        </>}
+                                        {memberView !== 'deleted' && <td style={{ padding: "8px 6px" }}><span style={S.badge(m.credentials_sent ? "#22c55e" : "#f59e0b")}>{m.credentials_sent ? "Sent" : "Pending"}</span></td>}
                                         <td style={{ padding: "6px 4px", whiteSpace: 'nowrap' }}>
                                             {memberView === 'active' && <>
                                                 {iconBtn('📦', '#f59e0b', () => handleArchive([m.id]), 'Archive')}
