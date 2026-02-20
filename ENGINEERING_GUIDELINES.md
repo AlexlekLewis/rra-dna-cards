@@ -400,6 +400,22 @@ Write clean, commented code. Structure it for maintainability, not just for the 
 - Images and assets must be optimised before being added to the project
 - Engine recalculations on large cohorts should be debounced or batched — never recalculate all players on every keystroke
 
+### TRAP 8: Debounced Auto-Save Stale Closures (COACH DATA RISK)
+> [INCIDENT: 2026-02-21] The assessment auto-save `setTimeout` captured the `players` array from the outer closure. When a coach made two rapid rating changes, the second save overwrote the first with stale data — silent data loss.
+
+Rule:
+- **Never reference React state directly inside a `setTimeout` or `setInterval` callback** — the value will be stale by the time the callback fires
+- Use a `useRef` to always hold the latest accumulated value, and read from the ref inside the debounced callback
+- This pattern applies everywhere: auto-save, debounced search, delayed API calls
+
+### TRAP 9: Data Key Format Alignment (ENGAGEMENT DATA RISK)
+> [INCIDENT: 2026-02-21] The `loadMemberEngagement()` function filtered for `step_*` prefixed keys in `onboarding_progress`, but `advanceStep()` stored progress as `{ steps: { 0: {...}, 1: {...} }, totalTimeMs, percentComplete }`. The mismatch meant engagement data was always 0% or 100%, never partial — silently incorrect.
+
+Rule:
+- **When writing data in one place and reading it in another, verify the key format matches** — never assume the shape of a JSONB column
+- After adding any new JSONB field, trace every reader of that field and confirm it parses the correct structure
+- Write a comment in the reader noting the expected shape (e.g., `// Expected shape: { steps: { 0: { completed, durationMs, completedAt } }, totalTimeMs, percentComplete }`)
+
 ---
 
 # HARD STOPS — PAUSE AND FLAG IMMEDIATELY IF ASKED TO:
@@ -542,4 +558,30 @@ These guidelines must improve with every engineering check. Think of it like rev
 - `AdminDashboard.jsx` is now ~1,800 lines — approaching monolith territory. Component splitting recommended before next major feature.
 - `App.jsx` is ~1,130 lines — player + coach portal in single file. Should consider extraction.
 - Bundle size 1,574 kB (gzip 470 kB) — chunk splitting should be implemented.
+
+### Audit Log — 2026-02-21 (Architecture Health Report & Bug Fixes)
+
+**Scope:** Full architecture health audit of all 13 source files (3,260 lines of component code), RLS on 35 tables, 4 Edge Functions, and test coverage analysis. Two critical bug fixes.
+
+**Bugs fixed:**
+- ✅ Fix #1: Stale closure in assessment auto-save — `players.find()` inside debounced `setTimeout` captured stale state. Now uses `pendingCdRef` to always save the latest accumulated cd. Prevents silent data loss on rapid coach edits.
+- ✅ Fix #2: Engagement key mismatch in `loadMemberEngagement()` — was filtering for `step_*` keys but onboarding stores `{ steps: { 0: {} } }`. Now reads from `prog.steps` and uses pre-calculated `percentComplete`/`totalTimeMs`.
+
+**Results:**
+- ✅ Build passes (333 modules, 0 errors)
+- ✅ 43/43 engine tests pass
+- ✅ Browser loads, Coach Portal renders correctly with 4 players
+- ✅ RLS audit: 30/35 tables protected, 5 reference tables intentionally open
+- ✅ Git diff: 2 files, 13 insertions, 4 deletions — exactly the two bug fixes
+
+**Improvements made this check:**
+- Added TRAP 8 (Debounced Auto-Save Stale Closures) to engineering guidelines
+- Added TRAP 9 (Data Key Format Alignment) to engineering guidelines
+- New audit log entry documenting architecture health report findings
+
+**Pre-existing items (unchanged, tracked for future):**
+- 4 Edge Functions have `verify_jwt: false` — to be hardened before scaling
+- 3 functions with mutable search_path — low risk
+- 17 overly permissive RLS policies on program builder tables — acceptable during development
+- 14 unindexed foreign keys, 16 per-row auth re-evaluations, 12 duplicate policies, 10 unused indexes — to be addressed as data volume grows
 

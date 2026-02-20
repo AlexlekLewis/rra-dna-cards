@@ -928,12 +928,16 @@ export default function App() {
     // ASSESSMENT
     if (cView === "assess" && sp) {
       const cd = sp.cd || {};
+      // pendingCdRef always holds the latest accumulated cd to avoid stale closures in debounced save
+      const pendingCdRef = useRef(cd);
+      pendingCdRef.current = cd;
       const cU = (k, v) => {
         setPlayers(ps => ps.map(p => p.id === sp.id ? { ...p, cd: { ...p.cd, [k]: v } } : p));
+        // Eagerly update the ref so the debounced save always has the latest value
+        pendingCdRef.current = { ...pendingCdRef.current, [k]: v };
         if (saveTimer.current) clearTimeout(saveTimer.current);
         saveTimer.current = setTimeout(() => {
-          const updated = players.find(p => p.id === sp.id);
-          if (updated) saveAssessmentToDB(sp.id, { ...updated.cd, [k]: v });
+          saveAssessmentToDB(sp.id, pendingCdRef.current);
         }, 2000);
       };
       const t = techItems(sp.role);

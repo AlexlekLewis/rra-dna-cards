@@ -203,13 +203,18 @@ export async function loadMemberEngagement() {
         onboardingPct: (() => {
             const prog = p.onboarding_progress;
             if (!prog) return p.submitted ? 100 : 0;
-            const steps = Object.keys(prog).filter(k => k.startsWith('step_'));
+            // percentComplete is pre-calculated by advanceStep; fall back to counting steps
+            if (prog.percentComplete != null) return prog.percentComplete;
+            const steps = prog.steps ? Object.keys(prog.steps) : [];
             return Math.round((steps.length / 7) * 100);
         })(),
         totalOnboardingTime: (() => {
             const prog = p.onboarding_progress;
             if (!prog) return null;
-            return Object.keys(prog).filter(k => k.startsWith('step_')).reduce((sum, k) => sum + (prog[k]?.elapsed || 0), 0);
+            // totalTimeMs is pre-accumulated by advanceStep; fall back to summing step durations
+            if (prog.totalTimeMs != null) return prog.totalTimeMs;
+            const steps = prog.steps ? Object.values(prog.steps) : [];
+            return steps.reduce((sum, s) => sum + (s?.durationMs || 0), 0);
         })(),
         joinDate: p.created_at,
     }));
