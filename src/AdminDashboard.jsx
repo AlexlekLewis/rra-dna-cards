@@ -1,12 +1,14 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import * as XLSX from "xlsx";
 import {
     loadEngineConstants, updateEngineConstant,
     loadDomainWeights, updateDomainWeights,
     loadCompetitionTiers, updateCompetitionTier,
     loadSquadGroups, createSquadGroup, updateSquadGroup, deleteSquadGroup,
     loadSquadAllocations, allocatePlayerToSquad, removePlayerFromSquad,
-    loadAnalyticsEvents, loadProgramMembers, loadAllUserProfiles,
+    loadAnalyticsEvents, loadProgramMembers, loadAllUserProfiles, updateProgramMember, loadDeletedMembers,
 } from "./db/adminDb";
+import { supabase } from "./supabaseClient";
 import { trackEvent, EVT } from "./analytics/tracker";
 
 // ═══════════════════════════════════════════════
@@ -40,7 +42,7 @@ const EMAIL_DEFAULTS = {
 
 export default function AdminDashboard({
     players, compTiers, dbWeights, engineConst,
-    onBack, session,
+    onBack, onSwitchToCoach, session, isAdmin,
     calcPDI, calcCCM, calcCohortPercentile, calcAgeScore,
     getAge, getBracket, ROLES, B, F, LOGO, sGrad,
 }) {
@@ -81,11 +83,27 @@ export default function AdminDashboard({
     const [tipOpen, setTipOpen] = useState(null);
     const styleRef = useRef(null);
 
+    // ═══ MEMBER MANAGEMENT STATE ═══
+    const [addMode, setAddMode] = useState(null); // null | 'single' | 'bulk'
+    const [singleForm, setSingleForm] = useState({ name: '', email: '', role: 'player' });
+    const [bulkRows, setBulkRows] = useState([]);
+    const [bulkFileName, setBulkFileName] = useState('');
+    const [creating, setCreating] = useState(false);
+    const [createResults, setCreateResults] = useState(null);
+    const fileInputRef = useRef(null);
+
+    // ═══ MEMBER REMOVAL STATE ═══
+    const [selectedIds, setSelectedIds] = useState(new Set());
+    const [deletedMembers, setDeletedMembers] = useState([]);
+    const [memberView, setMemberView] = useState('active'); // 'active' | 'archived' | 'deleted'
+    const [confirmModal, setConfirmModal] = useState(null); // { action, ids, confirmText }
+    const [confirmInput, setConfirmInput] = useState('');
+
     // ═══ DATA LOAD ═══
     const refresh = useCallback(async () => {
         setLoading(true);
         try {
-            const [c, dw, t, sg, sa, ev, pm, up] = await Promise.all([
+            const [c, dw, t, sg, sa, ev, pm, up, dm] = await Promise.all([
                 loadEngineConstants(),
                 loadDomainWeights(),
                 loadCompetitionTiers(),
@@ -94,6 +112,7 @@ export default function AdminDashboard({
                 loadAnalyticsEvents(analyticsDays),
                 loadProgramMembers(),
                 loadAllUserProfiles(),
+                loadDeletedMembers(),
             ]);
             setDbConstants(c || []);
             setDbDomainWeights(dw || []);
@@ -102,6 +121,7 @@ export default function AdminDashboard({
             setAllocations(sa || []);
             setAnalyticsEvents(ev || []);
             setMembers(pm || []);
+            setDeletedMembers(dm || []);
             setUserProfiles(up || []);
         } catch (err) {
             console.error('[admin] load error:', err);
@@ -821,161 +841,538 @@ export default function AdminDashboard({
     };
 
     // ═══════════════════════════════════════════════
+    //  MEMBER MANAGEMENT LOGIC
+    // ═══════════════════════════════════════════════
+    const SUPABASE_URL = 'https://pudldzgmluwoocwxtzhw.supabase.co';
+
+    const callCreateMember = async (membersPayload) => {
+        const { data: { session: sess } } = await supabase.auth.getSession();
+        const token = sess?.access_token;
+        if (!token) throw new Error('Not authenticated');
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/create-member`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`,
+            },
+            body: JSON.stringify({ members: membersPayload }),
+        });
+        if (!res.ok) {
+            const errBody = await res.text();
+            throw new Error(`Server error ${res.status}: ${errBody}`);
+        }
+        return await res.json();
+    };
+
+    const handleSingleAdd = async () => {
+        const { name, email, role } = singleForm;
+        if (!name.trim() || !email.trim()) { showToast('Name and email are required', 'error'); return; }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('Please enter a valid email', 'error'); return; }
+        setCreating(true);
+        try {
+            const result = await callCreateMember([{ name: name.trim(), email: email.trim(), role }]);
+            setCreateResults(result);
+            if (result.results?.length > 0) {
+                showToast(`✅ ${name} added successfully! Credentials sent.`, 'success');
+                setSingleForm({ name: '', email: '', role: 'player' });
+                await refreshMemberData();
+            }
+            if (result.errors?.length > 0) showToast(`❌ Error: ${result.errors[0].error}`, 'error');
+        } catch (e) { showToast(`❌ ${e.message}`, 'error'); }
+        finally { setCreating(false); }
+    };
+
+    const handleFileUpload = (file) => {
+        if (!file) return;
+        setBulkFileName(file.name);
+        setCreateResults(null);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const sheetName = workbook.SheetNames[0];
+                const sheet = workbook.Sheets[sheetName];
+                const jsonRows = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+                // Auto-detect columns (case-insensitive, partial match)
+                const mapped = jsonRows.map(row => {
+                    const keys = Object.keys(row);
+                    const find = (patterns) => {
+                        for (const p of patterns) {
+                            const k = keys.find(k => k.toLowerCase().includes(p.toLowerCase()));
+                            if (k && row[k]) return String(row[k]).trim();
+                        }
+                        return '';
+                    };
+                    const name = find(['name', 'full_name', 'display_name', 'player', 'student']);
+                    const email = find(['email', 'e-mail', 'mail']);
+                    let role = find(['role', 'type', 'position', 'access']).toLowerCase();
+                    if (!['player', 'coach'].includes(role)) role = 'player';
+                    return { name, email, role, valid: !!(name && email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) };
+                }).filter(r => r.name || r.email); // Remove fully empty rows
+
+                setBulkRows(mapped);
+                if (mapped.length === 0) {
+                    showToast('No valid rows found in spreadsheet. Need Name and Email columns.', 'error');
+                } else {
+                    showToast(`📋 Found ${mapped.length} rows (${mapped.filter(r => r.valid).length} valid)`, 'info');
+                }
+            } catch (err) {
+                showToast(`Failed to parse file: ${err.message}`, 'error');
+            }
+        };
+        reader.readAsArrayBuffer(file);
+    };
+
+    const handleBulkCreate = async () => {
+        const validRows = bulkRows.filter(r => r.valid);
+        if (validRows.length === 0) { showToast('No valid rows to create', 'error'); return; }
+        setCreating(true);
+        try {
+            const result = await callCreateMember(validRows.map(r => ({ name: r.name, email: r.email, role: r.role })));
+            setCreateResults(result);
+            const created = result.results?.length || 0;
+            const failed = result.errors?.length || 0;
+            showToast(`✅ Created ${created} member${created !== 1 ? 's' : ''}${failed > 0 ? `, ${failed} failed` : ''}`, created > 0 ? 'success' : 'error');
+            if (created > 0) await refreshMemberData();
+        } catch (e) { showToast(`❌ ${e.message}`, 'error'); }
+        finally { setCreating(false); }
+    };
+
+    const handleRoleChange = async (memberId, newRole) => {
+        setSaving(true);
+        try {
+            await updateProgramMember(memberId, { role: newRole });
+            setMembers(prev => prev.map(m => m.id === memberId ? { ...m, role: newRole } : m));
+            showToast(`Role updated to ${newRole}`, 'success');
+        } catch (e) { showToast(`Failed to update role: ${e.message}`, 'error'); }
+        finally { setSaving(false); }
+    };
+
+    const callManageMember = async (action, ids) => {
+        const { data: { session: sess } } = await supabase.auth.getSession();
+        const token = sess?.access_token;
+        if (!token) throw new Error('Not authenticated');
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/manage-member`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ action, ids }),
+        });
+        if (!res.ok) throw new Error(`Server error ${res.status}`);
+        return await res.json();
+    };
+
+    const refreshMemberData = async () => {
+        const [pm, dm] = await Promise.all([loadProgramMembers(), loadDeletedMembers()]);
+        setMembers(pm || []);
+        setDeletedMembers(dm || []);
+        setSelectedIds(new Set());
+    };
+
+    const handleArchive = async (ids) => {
+        setSaving(true);
+        try {
+            const result = await callManageMember('archive', ids);
+            showToast(`📦 Archived ${result.results?.length || 0} member${(result.results?.length || 0) !== 1 ? 's' : ''}`, 'success');
+            await refreshMemberData();
+        } catch (e) { showToast(`❌ ${e.message}`, 'error'); }
+        finally { setSaving(false); }
+    };
+
+    const handleRestore = async (ids) => {
+        setSaving(true);
+        try {
+            const result = await callManageMember('restore', ids);
+            showToast(`✅ Restored ${result.results?.length || 0} member${(result.results?.length || 0) !== 1 ? 's' : ''}`, 'success');
+            await refreshMemberData();
+        } catch (e) { showToast(`❌ ${e.message}`, 'error'); }
+        finally { setSaving(false); }
+    };
+
+    const handleDelete = async (ids) => {
+        setSaving(true);
+        try {
+            const result = await callManageMember('delete', ids);
+            showToast(`🗑️ Deleted ${result.results?.length || 0} member${(result.results?.length || 0) !== 1 ? 's' : ''} (recoverable for 30 days)`, 'success');
+            await refreshMemberData();
+        } catch (e) { showToast(`❌ ${e.message}`, 'error'); }
+        finally { setSaving(false); setConfirmModal(null); setConfirmInput(''); }
+    };
+
+    const handleRestoreDeleted = async (ids) => {
+        setSaving(true);
+        try {
+            const result = await callManageMember('restore_deleted', ids);
+            showToast(`✅ Restored ${result.results?.length || 0} deleted member${(result.results?.length || 0) !== 1 ? 's' : ''}`, 'success');
+            await refreshMemberData();
+        } catch (e) { showToast(`❌ ${e.message}`, 'error'); }
+        finally { setSaving(false); }
+    };
+
+    const toggleSelect = (id) => setSelectedIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+    const toggleSelectAll = (list) => {
+        const allIds = list.map(m => m.id);
+        const allSelected = allIds.every(id => selectedIds.has(id));
+        setSelectedIds(allSelected ? new Set() : new Set(allIds));
+    };
+
+    // ═══════════════════════════════════════════════
     //  RENDER: USER MANAGEMENT TAB
     // ═══════════════════════════════════════════════
     const renderUsers = () => {
+        const inputSty = { width: '100%', padding: '10px 12px', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, color: '#e4e4e7', fontSize: 12, fontFamily: F, outline: 'none', boxSizing: 'border-box' };
+        const selectSty = { ...inputSty, cursor: 'pointer', appearance: 'none', backgroundImage: 'url("data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2712%27 height=%2712%27 viewBox=%270 0 12 12%27%3E%3Cpath fill=%27%23999%27 d=%27M6 8L1 3h10z%27/%3E%3C/svg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right 12px center' };
+        const actionBtn = (bg, label, onClick, disabled) => (
+            <button onClick={onClick} disabled={disabled} style={{ padding: '10px 20px', borderRadius: 8, border: 'none', background: disabled ? 'rgba(255,255,255,0.05)' : bg, color: disabled ? 'rgba(255,255,255,0.3)' : '#fff', fontSize: 12, fontWeight: 700, fontFamily: F, cursor: disabled ? 'default' : 'pointer', letterSpacing: 0.3, transition: 'all 0.2s' }}>{label}</button>
+        );
+        const iconBtn = (emoji, color, onClick, tip) => (
+            <button title={tip} onClick={onClick} style={{ padding: '3px 6px', borderRadius: 4, border: 'none', background: `${color}12`, color, fontSize: 12, cursor: 'pointer', lineHeight: 1 }}>{emoji}</button>
+        );
+
+        const activeMembers = members.filter(m => m.active);
+        const archivedMembers = members.filter(m => !m.active);
+        const displayList = memberView === 'active' ? activeMembers : memberView === 'archived' ? archivedMembers : deletedMembers;
+        const selArr = [...selectedIds];
+
+        const daysRemaining = (deletedAt) => {
+            const diff = 30 - Math.floor((Date.now() - new Date(deletedAt).getTime()) / 86400000);
+            return Math.max(0, diff);
+        };
+
+        /* ── CONFIRMATION MODAL ── */
+        const ConfirmDeleteModal = () => {
+            if (!confirmModal) return null;
+            const count = confirmModal.ids.length;
+            return (
+                <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(4px)' }} onClick={() => { setConfirmModal(null); setConfirmInput(''); }}>
+                    <div onClick={e => e.stopPropagation()} style={{ background: '#1a1b2e', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 12, padding: '28px 32px', maxWidth: 420, width: '90%', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+                        <div style={{ fontSize: 16, fontWeight: 800, color: '#ef4444', marginBottom: 8, fontFamily: F }}>⚠️ Confirm Deletion</div>
+                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.6)', lineHeight: 1.7, marginBottom: 16 }}>
+                            You are about to <strong style={{ color: '#ef4444' }}>delete {count} member{count !== 1 ? 's' : ''}</strong>. This will:
+                            <ul style={{ paddingLeft: 16, margin: '8px 0' }}>
+                                <li>Remove them from the active roster</li>
+                                <li>Exclude them from all engine calculations</li>
+                                <li>Disable their login access</li>
+                            </ul>
+                            Data will be recoverable for <strong style={{ color: '#fbbf24' }}>30 days</strong> from the Deleted tab.
+                        </div>
+                        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.5)', marginBottom: 8, fontWeight: 600 }}>Type <code style={{ color: '#ef4444', fontWeight: 800, fontSize: 12 }}>DELETE</code> to confirm:</div>
+                        <input value={confirmInput} onChange={e => setConfirmInput(e.target.value)} placeholder="Type DELETE" autoFocus style={{ width: '100%', padding: '10px 12px', background: 'rgba(255,255,255,0.05)', border: `1px solid ${confirmInput === 'DELETE' ? 'rgba(34,197,94,0.5)' : 'rgba(239,68,68,0.3)'}`, borderRadius: 8, color: '#e4e4e7', fontSize: 13, fontFamily: 'monospace', fontWeight: 700, outline: 'none', boxSizing: 'border-box', marginBottom: 16 }} />
+                        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                            <button onClick={() => { setConfirmModal(null); setConfirmInput(''); }} style={{ padding: '8px 18px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 600, fontFamily: F, cursor: 'pointer' }}>Cancel</button>
+                            <button onClick={() => { if (confirmInput === 'DELETE') handleDelete(confirmModal.ids); }} disabled={confirmInput !== 'DELETE'} style={{ padding: '8px 18px', borderRadius: 6, border: 'none', background: confirmInput === 'DELETE' ? '#ef4444' : 'rgba(255,255,255,0.05)', color: confirmInput === 'DELETE' ? '#fff' : 'rgba(255,255,255,0.2)', fontSize: 11, fontWeight: 700, fontFamily: F, cursor: confirmInput === 'DELETE' ? 'pointer' : 'default', transition: 'all 0.2s' }}>🗑️ Delete Permanently</button>
+                        </div>
+                    </div>
+                </div>
+            );
+        };
+
         return (
             <div>
+                <ConfirmDeleteModal />
+
+                {/* ─── ADD MEMBERS SECTION ─── */}
                 <div style={S.card}>
-                    <div style={S.sectionTitle}>📨 Program Members ({members.length}) <InfoTip id="members" text="All users with access to the RRA DNA platform. Managed through the batch invite system. Active = can log in, Inactive = access revoked." /></div>
-                    <div style={S.subText}>All users added to the program. Managed by the batch invite system.</div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                        <div style={S.sectionTitle}>➕ Add Members</div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                            <button onClick={() => { setAddMode(addMode === 'single' ? null : 'single'); setCreateResults(null); }} style={{ padding: '6px 14px', borderRadius: 6, border: addMode === 'single' ? `1px solid ${B.pk}` : '1px solid rgba(255,255,255,0.1)', background: addMode === 'single' ? `${B.pk}15` : 'transparent', color: addMode === 'single' ? B.pk : 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}>👤 Individual</button>
+                            <button onClick={() => { setAddMode(addMode === 'bulk' ? null : 'bulk'); setCreateResults(null); setBulkRows([]); setBulkFileName(''); }} style={{ padding: '6px 14px', borderRadius: 6, border: addMode === 'bulk' ? `1px solid ${B.pk}` : '1px solid rgba(255,255,255,0.1)', background: addMode === 'bulk' ? `${B.pk}15` : 'transparent', color: addMode === 'bulk' ? B.pk : 'rgba(255,255,255,0.5)', fontSize: 10, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}>📁 Bulk Upload</button>
+                        </div>
+                    </div>
+
+                    {/* SINGLE ADD FORM */}
+                    {addMode === 'single' && (
+                        <div style={{ padding: '16px 0 0' }}>
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, marginBottom: 12 }}>
+                                <div>
+                                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 4, letterSpacing: 1, textTransform: 'uppercase' }}>Full Name *</div>
+                                    <input value={singleForm.name} onChange={e => setSingleForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Tom Smith" style={inputSty} />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 4, letterSpacing: 1, textTransform: 'uppercase' }}>Email *</div>
+                                    <input value={singleForm.email} onChange={e => setSingleForm(f => ({ ...f, email: e.target.value }))} placeholder="e.g. tom@email.com" type="email" style={inputSty} />
+                                </div>
+                                <div>
+                                    <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', fontWeight: 700, marginBottom: 4, letterSpacing: 1, textTransform: 'uppercase' }}>Role</div>
+                                    <select value={singleForm.role} onChange={e => setSingleForm(f => ({ ...f, role: e.target.value }))} style={selectSty}>
+                                        <option value="player">🏏 Player</option>
+                                        <option value="coach">📋 Coach</option>
+                                    </select>
+                                </div>
+                            </div>
+                            {actionBtn(`linear-gradient(135deg,${B.bl},${B.pk})`, creating ? '⏳ Creating...' : '✅ Create & Send Credentials', handleSingleAdd, creating || !singleForm.name.trim() || !singleForm.email.trim())}
+                            {createResults?.results?.length > 0 && addMode === 'single' && (
+                                <div style={{ marginTop: 12, padding: 12, background: 'rgba(34,197,94,0.08)', border: '1px solid rgba(34,197,94,0.2)', borderRadius: 8 }}>
+                                    <div style={{ fontSize: 10, fontWeight: 700, color: '#22c55e', marginBottom: 6 }}>✅ Member Created</div>
+                                    {createResults.results.map((r, i) => (<div key={i} style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', lineHeight: 1.8 }}><strong>{r.display_name}</strong> — Username: <code style={{ color: B.pk, fontWeight: 700 }}>{r.username}</code>, Credentials {r.credentials_sent ? '📧 Sent' : '⚠️ Not sent'}</div>))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* BULK UPLOAD */}
+                    {addMode === 'bulk' && (
+                        <div style={{ padding: '16px 0 0' }}>
+                            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', marginBottom: 8, lineHeight: 1.6 }}>Upload a spreadsheet with <strong style={{ color: '#e4e4e7' }}>Name</strong> and <strong style={{ color: '#e4e4e7' }}>Email</strong> columns. Optionally include a <strong style={{ color: '#e4e4e7' }}>Role</strong> column. Supports CSV, XLSX, XLS.</div>
+                            <div onClick={() => fileInputRef.current?.click()} onDragOver={e => { e.preventDefault(); e.stopPropagation(); }} onDrop={e => { e.preventDefault(); e.stopPropagation(); const f = e.dataTransfer?.files?.[0]; if (f) handleFileUpload(f); }} style={{ border: '2px dashed rgba(255,255,255,0.12)', borderRadius: 10, padding: '28px 20px', textAlign: 'center', cursor: 'pointer', background: 'rgba(255,255,255,0.02)', marginBottom: 12 }}>
+                                <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" style={{ display: 'none' }} onChange={e => handleFileUpload(e.target.files?.[0])} />
+                                <div style={{ fontSize: 28, marginBottom: 8 }}>📂</div>
+                                <div style={{ fontSize: 12, fontWeight: 700, color: 'rgba(255,255,255,0.6)', fontFamily: F }}>{bulkFileName ? `📎 ${bulkFileName}` : 'Drop spreadsheet here or click to browse'}</div>
+                                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', marginTop: 4 }}>CSV, XLSX, XLS</div>
+                            </div>
+                            {bulkRows.length > 0 && (
+                                <div>
+                                    <div style={{ fontSize: 11, fontWeight: 700, color: 'rgba(255,255,255,0.6)', marginBottom: 8 }}>📋 Preview ({bulkRows.filter(r => r.valid).length} valid / {bulkRows.length} total)</div>
+                                    <div style={{ maxHeight: 240, overflowY: 'auto', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+                                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 11 }}>
+                                            <thead><tr style={{ borderBottom: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.03)' }}>
+                                                {['', 'Name', 'Email', 'Role'].map(h => (<th key={h} style={{ padding: '8px 6px', textAlign: 'left', color: 'rgba(255,255,255,0.4)', fontWeight: 600, fontSize: 10 }}>{h}</th>))}
+                                            </tr></thead>
+                                            <tbody>{bulkRows.map((r, i) => (
+                                                <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.03)', opacity: r.valid ? 1 : 0.4 }}>
+                                                    <td style={{ padding: '6px', width: 24 }}>{r.valid ? '✅' : '❌'}</td>
+                                                    <td style={{ padding: '6px', color: '#e4e4e7', fontWeight: 600 }}>{r.name || '—'}</td>
+                                                    <td style={{ padding: '6px', color: 'rgba(255,255,255,0.5)' }}>{r.email || '—'}</td>
+                                                    <td style={{ padding: '6px' }}>
+                                                        <select value={r.role} onChange={e => setBulkRows(prev => prev.map((row, j) => j === i ? { ...row, role: e.target.value } : row))} style={{ ...selectSty, padding: '4px 8px', fontSize: 10 }}>
+                                                            <option value="player">Player</option><option value="coach">Coach</option>
+                                                        </select>
+                                                    </td>
+                                                </tr>
+                                            ))}</tbody>
+                                        </table>
+                                    </div>
+                                    <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 12 }}>
+                                        <button onClick={() => { setBulkRows([]); setBulkFileName(''); setCreateResults(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} style={{ padding: '8px 16px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.1)', background: 'transparent', color: 'rgba(255,255,255,0.5)', fontSize: 11, fontWeight: 600, fontFamily: F, cursor: 'pointer' }}>Clear</button>
+                                        {actionBtn(`linear-gradient(135deg,${B.bl},${B.pk})`, creating ? `⏳ Creating...` : `✅ Create ${bulkRows.filter(r => r.valid).length} Members`, handleBulkCreate, creating || bulkRows.filter(r => r.valid).length === 0)}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
                 </div>
 
-                <div style={{ overflowX: "auto" }}>
-                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
-                        <thead>
-                            <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
-                                {["Username", "Display Name", "Email", "Role", "Season", "Active", "Credentials Sent"].map(h => (
-                                    <th key={h} style={{ padding: "8px 6px", textAlign: "left", color: "rgba(255,255,255,0.5)", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
-                                ))}
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {members.map(m => (
-                                <tr key={m.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                                    <td style={{ padding: "8px 6px", fontWeight: 700, color: "#e4e4e7" }}>{m.username}</td>
-                                    <td style={{ padding: "8px 6px", color: "rgba(255,255,255,0.5)" }}>{m.display_name || "—"}</td>
-                                    <td style={{ padding: "8px 6px", color: "rgba(255,255,255,0.5)" }}>{m.email || "—"}</td>
-                                    <td style={{ padding: "8px 6px" }}><span style={S.badge(m.role === "admin" ? "#fbbf24" : m.role === "coach" ? "#60a5fa" : "#22c55e")}>{m.role}</span></td>
-                                    <td style={{ padding: "8px 6px", color: "rgba(255,255,255,0.3)" }}>{m.season || "—"}</td>
-                                    <td style={{ padding: "8px 6px" }}><span style={S.badge(m.active ? "#22c55e" : "#ef4444")}>{m.active ? "Active" : "Inactive"}</span></td>
-                                    <td style={{ padding: "8px 6px" }}><span style={S.badge(m.credentials_sent ? "#22c55e" : "#f59e0b")}>{m.credentials_sent ? "Sent" : "Pending"}</span></td>
-                                </tr>
+                {/* ─── MEMBER VIEW TABS ─── */}
+                <div style={S.card}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                        <div style={S.sectionTitle}>📨 Program Members</div>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                            {[
+                                { id: 'active', label: `Active (${activeMembers.length})`, color: '#22c55e' },
+                                { id: 'archived', label: `Archived (${archivedMembers.length})`, color: '#f59e0b' },
+                                { id: 'deleted', label: `Deleted (${deletedMembers.length})`, color: '#ef4444' },
+                            ].map(v => (
+                                <button key={v.id} onClick={() => { setMemberView(v.id); setSelectedIds(new Set()); }} style={{ padding: '5px 12px', borderRadius: 6, border: `1px solid ${memberView === v.id ? v.color : 'rgba(255,255,255,0.08)'}`, background: memberView === v.id ? `${v.color}15` : 'transparent', color: memberView === v.id ? v.color : 'rgba(255,255,255,0.4)', fontSize: 10, fontWeight: 700, fontFamily: F, cursor: 'pointer', transition: 'all 0.2s' }}>{v.label}</button>
                             ))}
-                        </tbody>
-                    </table>
+                        </div>
+                    </div>
+
+                    {/* BULK ACTION BAR */}
+                    {selArr.length > 0 && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 12, padding: '10px 14px', background: 'rgba(255,255,255,0.03)', borderRadius: 8, border: '1px solid rgba(255,255,255,0.06)' }}>
+                            <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontWeight: 600 }}>{selArr.length} selected</span>
+                            <div style={{ flex: 1 }} />
+                            {memberView === 'active' && <>
+                                <button onClick={() => handleArchive(selArr)} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: 'rgba(245,158,11,0.15)', color: '#f59e0b', fontSize: 10, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}>📦 Archive {selArr.length}</button>
+                                <button onClick={() => { setConfirmModal({ action: 'delete', ids: selArr }); setConfirmInput(''); }} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: 'rgba(239,68,68,0.15)', color: '#ef4444', fontSize: 10, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}>🗑️ Delete {selArr.length}</button>
+                            </>}
+                            {memberView === 'archived' && <>
+                                <button onClick={() => handleRestore(selArr)} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontSize: 10, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}>✅ Restore {selArr.length}</button>
+                                <button onClick={() => { setConfirmModal({ action: 'delete', ids: selArr }); setConfirmInput(''); }} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: 'rgba(239,68,68,0.15)', color: '#ef4444', fontSize: 10, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}>🗑️ Delete {selArr.length}</button>
+                            </>}
+                            {memberView === 'deleted' && (
+                                <button onClick={() => handleRestoreDeleted(selArr)} style={{ padding: '5px 12px', borderRadius: 6, border: 'none', background: 'rgba(34,197,94,0.15)', color: '#22c55e', fontSize: 10, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}>✅ Restore {selArr.length}</button>
+                            )}
+                            <button onClick={() => setSelectedIds(new Set())} style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid rgba(255,255,255,0.08)', background: 'transparent', color: 'rgba(255,255,255,0.4)', fontSize: 10, fontFamily: F, cursor: 'pointer' }}>Clear</button>
+                        </div>
+                    )}
                 </div>
 
-                {members.length === 0 && (
+                {/* ─── MEMBERS TABLE ─── */}
+                {displayList.length > 0 ? (
+                    <div style={{ overflowX: "auto" }}>
+                        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                            <thead>
+                                <tr style={{ borderBottom: "1px solid rgba(255,255,255,0.1)" }}>
+                                    <th style={{ padding: '8px 4px', width: 30 }}>
+                                        <input type="checkbox" checked={displayList.length > 0 && displayList.every(m => selectedIds.has(m.id))} onChange={() => toggleSelectAll(displayList)} style={{ cursor: 'pointer' }} />
+                                    </th>
+                                    {(memberView === 'deleted' ? ["Username", "Display Name", "Email", "Role", "Deleted", "Days Left", ""] : ["Username", "Display Name", "Email", "Role", "Season", "Credentials", ""]).map(h => (
+                                        <th key={h} style={{ padding: "8px 6px", textAlign: "left", color: "rgba(255,255,255,0.5)", fontWeight: 600, whiteSpace: "nowrap" }}>{h}</th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {displayList.map(m => (
+                                    <tr key={m.id} style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                                        <td style={{ padding: '6px 4px' }}>
+                                            <input type="checkbox" checked={selectedIds.has(m.id)} onChange={() => toggleSelect(m.id)} style={{ cursor: 'pointer' }} />
+                                        </td>
+                                        <td style={{ padding: "8px 6px", fontWeight: 700, color: "#e4e4e7" }}>{m.username}</td>
+                                        <td style={{ padding: "8px 6px", color: "rgba(255,255,255,0.5)" }}>{m.display_name || "—"}</td>
+                                        <td style={{ padding: "8px 6px", color: "rgba(255,255,255,0.5)" }}>{m.email || "—"}</td>
+                                        <td style={{ padding: "8px 6px" }}>
+                                            {memberView === 'active' && isAdmin ? (
+                                                <select value={m.role} onChange={e => handleRoleChange(m.id, e.target.value)} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, color: m.role === 'coach' ? '#60a5fa' : '#22c55e', fontSize: 10, fontWeight: 700, padding: '3px 6px', fontFamily: F, cursor: 'pointer' }}>
+                                                    <option value="player">player</option><option value="coach">coach</option>
+                                                </select>
+                                            ) : (
+                                                <span style={S.badge(m.role === "coach" ? "#60a5fa" : "#22c55e")}>{m.role}</span>
+                                            )}
+                                        </td>
+                                        {memberView === 'deleted' ? (<>
+                                            <td style={{ padding: "8px 6px", color: "rgba(255,255,255,0.3)", fontSize: 10 }}>{new Date(m.deleted_at).toLocaleDateString()}</td>
+                                            <td style={{ padding: "8px 6px" }}><span style={S.badge(daysRemaining(m.deleted_at) > 7 ? '#22c55e' : daysRemaining(m.deleted_at) > 3 ? '#f59e0b' : '#ef4444')}>{daysRemaining(m.deleted_at)}d</span></td>
+                                        </>) : (<>
+                                            <td style={{ padding: "8px 6px", color: "rgba(255,255,255,0.3)" }}>{m.season || "—"}</td>
+                                            <td style={{ padding: "8px 6px" }}><span style={S.badge(m.credentials_sent ? "#22c55e" : "#f59e0b")}>{m.credentials_sent ? "Sent" : "Pending"}</span></td>
+                                        </>)}
+                                        <td style={{ padding: "6px 4px", whiteSpace: 'nowrap' }}>
+                                            {memberView === 'active' && <>
+                                                {iconBtn('📦', '#f59e0b', () => handleArchive([m.id]), 'Archive')}
+                                                {' '}
+                                                {iconBtn('🗑️', '#ef4444', () => { setConfirmModal({ action: 'delete', ids: [m.id] }); setConfirmInput(''); }, 'Delete')}
+                                            </>}
+                                            {memberView === 'archived' && <>
+                                                {iconBtn('✅', '#22c55e', () => handleRestore([m.id]), 'Restore')}
+                                                {' '}
+                                                {iconBtn('🗑️', '#ef4444', () => { setConfirmModal({ action: 'delete', ids: [m.id] }); setConfirmInput(''); }, 'Delete')}
+                                            </>}
+                                            {memberView === 'deleted' && iconBtn('✅', '#22c55e', () => handleRestoreDeleted([m.id]), 'Restore')}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                ) : (
                     <div style={{ ...S.card, textAlign: "center" }}>
-                        <div style={S.subText}>No members yet. Use the batch invite system to add players and coaches.</div>
+                        <div style={S.subText}>
+                            {memberView === 'active' && 'No active members. Use Add Members above.'}
+                            {memberView === 'archived' && 'No archived members.'}
+                            {memberView === 'deleted' && 'No deleted members in recovery.'}
+                        </div>
                     </div>
                 )}
             </div>
         );
     };
 
-    // ═══════════════════════════════════════════════
-    //  RENDER: ANALYTICS TAB
-    // ═══════════════════════════════════════════════
-    const renderAnalytics = () => {
-        // Group events by type
-        const typeCounts = {};
-        const userActivity = {};
-        const dailyLogins = {};
 
-        analyticsEvents.forEach(ev => {
-            typeCounts[ev.event_type] = (typeCounts[ev.event_type] || 0) + 1;
 
-            if (!userActivity[ev.user_id]) userActivity[ev.user_id] = { count: 0, lastSeen: ev.created_at, events: [] };
-            userActivity[ev.user_id].count++;
-            userActivity[ev.user_id].events.push(ev.event_type);
-            if (ev.created_at > userActivity[ev.user_id].lastSeen) userActivity[ev.user_id].lastSeen = ev.created_at;
+// ═══════════════════════════════════════════════
+//  RENDER: ANALYTICS TAB
+// ═══════════════════════════════════════════════
+const renderAnalytics = () => {
+    // Group events by type
+    const typeCounts = {};
+    const userActivity = {};
+    const dailyLogins = {};
 
-            if (ev.event_type === "login") {
-                const day = ev.created_at.slice(0, 10);
-                dailyLogins[day] = (dailyLogins[day] || 0) + 1;
-            }
-        });
+    analyticsEvents.forEach(ev => {
+        typeCounts[ev.event_type] = (typeCounts[ev.event_type] || 0) + 1;
 
-        const sortedTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
-        const maxCount = sortedTypes.length > 0 ? sortedTypes[0][1] : 1;
+        if (!userActivity[ev.user_id]) userActivity[ev.user_id] = { count: 0, lastSeen: ev.created_at, events: [] };
+        userActivity[ev.user_id].count++;
+        userActivity[ev.user_id].events.push(ev.event_type);
+        if (ev.created_at > userActivity[ev.user_id].lastSeen) userActivity[ev.user_id].lastSeen = ev.created_at;
 
-        // User engagement levels
-        const now = Date.now();
-        const engagementList = Object.entries(userActivity).map(([uid, data]) => {
-            const daysSince = Math.floor((now - new Date(data.lastSeen).getTime()) / 86400000);
-            const level = daysSince <= 7 ? "active" : daysSince <= 30 ? "occasional" : "inactive";
-            const profile = userProfiles.find(p => p.id === uid) || members.find(m => m.auth_user_id === uid);
-            return { uid, ...data, daysSince, level, name: profile?.full_name || profile?.display_name || profile?.email || uid.slice(0, 8) };
-        }).sort((a, b) => b.count - a.count);
+        if (ev.event_type === "login") {
+            const day = ev.created_at.slice(0, 10);
+            dailyLogins[day] = (dailyLogins[day] || 0) + 1;
+        }
+    });
 
-        return (
-            <div>
-                {/* Period selector */}
-                <div style={S.card}>
-                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                        <div style={S.sectionTitle}>📊 Analytics <InfoTip id="analytics" text="Track how people use the app. See which features get used most, who's active, and when people log in. Useful for understanding engagement patterns." /></div>
-                        <select value={analyticsDays} onChange={e => setAnalyticsDays(Number(e.target.value))} style={{ ...S.input, width: "auto" }}>
-                            <option value={7}>Last 7 days</option>
-                            <option value={14}>Last 14 days</option>
-                            <option value={30}>Last 30 days</option>
-                            <option value={90}>Last 90 days</option>
-                        </select>
-                    </div>
-                    <div style={S.subText}>{analyticsEvents.length} events tracked in this period</div>
+    const sortedTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
+    const maxCount = sortedTypes.length > 0 ? sortedTypes[0][1] : 1;
+
+    // User engagement levels
+    const now = Date.now();
+    const engagementList = Object.entries(userActivity).map(([uid, data]) => {
+        const daysSince = Math.floor((now - new Date(data.lastSeen).getTime()) / 86400000);
+        const level = daysSince <= 7 ? "active" : daysSince <= 30 ? "occasional" : "inactive";
+        const profile = userProfiles.find(p => p.id === uid) || members.find(m => m.auth_user_id === uid);
+        return { uid, ...data, daysSince, level, name: profile?.full_name || profile?.display_name || profile?.email || uid.slice(0, 8) };
+    }).sort((a, b) => b.count - a.count);
+
+    return (
+        <div>
+            {/* Period selector */}
+            <div style={S.card}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <div style={S.sectionTitle}>📊 Analytics <InfoTip id="analytics" text="Track how people use the app. See which features get used most, who's active, and when people log in. Useful for understanding engagement patterns." /></div>
+                    <select value={analyticsDays} onChange={e => setAnalyticsDays(Number(e.target.value))} style={{ ...S.input, width: "auto" }}>
+                        <option value={7}>Last 7 days</option>
+                        <option value={14}>Last 14 days</option>
+                        <option value={30}>Last 30 days</option>
+                        <option value={90}>Last 90 days</option>
+                    </select>
                 </div>
+                <div style={S.subText}>{analyticsEvents.length} events tracked in this period</div>
+            </div>
 
-                {/* Feature Usage */}
-                <div style={S.card}>
-                    <div style={S.sectionTitle}>Feature Usage <InfoTip id="featureusage" text="Which features get used the most? Each bar shows the relative frequency of that action type across all users in the selected period." /></div>
-                    <div style={S.subText}>Which features get used the most?</div>
-                    <div style={{ marginTop: 10 }}>
-                        {sortedTypes.map(([type, count]) => (
-                            <div key={type} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                                <div style={{ width: 120, fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.6)", textTransform: "uppercase" }}>{type.replace(/_/g, " ")}</div>
-                                <div style={{ flex: 1, height: 8, borderRadius: 4, background: "rgba(255,255,255,0.04)", overflow: "hidden" }}>
-                                    <div style={{ height: "100%", borderRadius: 4, background: `linear-gradient(90deg, ${B.bl}, ${B.pk})`, width: `${(count / maxCount) * 100}%`, transition: "width 0.4s", animation: "adminBarFill 0.6s ease-out" }} />
-                                </div>
-                                <div style={{ width: 40, textAlign: "right", fontSize: 11, fontWeight: 700, color: "#e4e4e7" }}>{count}</div>
+            {/* Feature Usage */}
+            <div style={S.card}>
+                <div style={S.sectionTitle}>Feature Usage <InfoTip id="featureusage" text="Which features get used the most? Each bar shows the relative frequency of that action type across all users in the selected period." /></div>
+                <div style={S.subText}>Which features get used the most?</div>
+                <div style={{ marginTop: 10 }}>
+                    {sortedTypes.map(([type, count]) => (
+                        <div key={type} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                            <div style={{ width: 120, fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.6)", textTransform: "uppercase" }}>{type.replace(/_/g, " ")}</div>
+                            <div style={{ flex: 1, height: 8, borderRadius: 4, background: "rgba(255,255,255,0.04)", overflow: "hidden" }}>
+                                <div style={{ height: "100%", borderRadius: 4, background: `linear-gradient(90deg, ${B.bl}, ${B.pk})`, width: `${(count / maxCount) * 100}%`, transition: "width 0.4s", animation: "adminBarFill 0.6s ease-out" }} />
                             </div>
-                        ))}
-                        {sortedTypes.length === 0 && <div style={S.subText}>No events recorded yet. Activity will appear here as users interact with the app.</div>}
-                    </div>
-                </div>
-
-                {/* User Engagement */}
-                <div style={S.card}>
-                    <div style={S.sectionTitle}>User Engagement <InfoTip id="engagement" text="Shows how recently each user has been active. Green = used the app in the last 7 days, amber = 8-30 days, red = more than 30 days since last activity." /></div>
-                    <div style={S.subText}>🟢 Active (last 7 days) • 🟡 Occasional (8-30 days) • 🔴 Inactive (30+ days)</div>
-                    <div style={{ marginTop: 10 }}>
-                        {engagementList.map(u => (
-                            <div key={u.uid} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                                <span style={{ fontSize: 12 }}>{u.level === "active" ? "🟢" : u.level === "occasional" ? "🟡" : "🔴"}</span>
-                                <div style={{ flex: 1 }}>
-                                    <div style={{ fontSize: 11, fontWeight: 600, color: "#e4e4e7" }}>{u.name}</div>
-                                    <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)" }}>{u.count} actions • Last seen {u.daysSince === 0 ? "today" : `${u.daysSince}d ago`}</div>
-                                </div>
-                            </div>
-                        ))}
-                        {engagementList.length === 0 && <div style={S.subText}>No user activity recorded yet.</div>}
-                    </div>
-                </div>
-
-                {/* Login Timeline */}
-                <div style={S.card}>
-                    <div style={S.sectionTitle}>Login Timeline <InfoTip id="logins" text="A visual chart of daily login counts over the last 14 days. Taller bars = more logins that day. Useful for spotting engagement patterns and drop-offs." /></div>
-                    <div style={{ display: "flex", gap: 2, alignItems: "flex-end", height: 60, marginTop: 10 }}>
-                        {Object.entries(dailyLogins).sort().slice(-14).map(([day, count]) => (
-                            <div key={day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
-                                <div style={{ width: "100%", background: `linear-gradient(180deg, ${B.bl}, ${B.pk})`, borderRadius: 3, height: Math.max(4, (count / 10) * 50) }} />
-                                <div style={{ fontSize: 7, color: "rgba(255,255,255,0.2)", marginTop: 2 }}>{day.slice(5)}</div>
-                            </div>
-                        ))}
-                    </div>
-                    {Object.keys(dailyLogins).length === 0 && <div style={S.subText}>No login events recorded yet.</div>}
+                            <div style={{ width: 40, textAlign: "right", fontSize: 11, fontWeight: 700, color: "#e4e4e7" }}>{count}</div>
+                        </div>
+                    ))}
+                    {sortedTypes.length === 0 && <div style={S.subText}>No events recorded yet. Activity will appear here as users interact with the app.</div>}
                 </div>
             </div>
-        );
-    };
 
-    // ═══════════════════════════════════════════════
-    //  RENDER: EMAIL TEMPLATE TAB
-    // ═══════════════════════════════════════════════
-    const renderEmailTemplate = () => {
-        const resolvedSubject = emailSubject.replace("{{academyName}}", emailAcademyName);
+            {/* User Engagement */}
+            <div style={S.card}>
+                <div style={S.sectionTitle}>User Engagement <InfoTip id="engagement" text="Shows how recently each user has been active. Green = used the app in the last 7 days, amber = 8-30 days, red = more than 30 days since last activity." /></div>
+                <div style={S.subText}>🟢 Active (last 7 days) • 🟡 Occasional (8-30 days) • 🔴 Inactive (30+ days)</div>
+                <div style={{ marginTop: 10 }}>
+                    {engagementList.map(u => (
+                        <div key={u.uid} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                            <span style={{ fontSize: 12 }}>{u.level === "active" ? "🟢" : u.level === "occasional" ? "🟡" : "🔴"}</span>
+                            <div style={{ flex: 1 }}>
+                                <div style={{ fontSize: 11, fontWeight: 600, color: "#e4e4e7" }}>{u.name}</div>
+                                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)" }}>{u.count} actions • Last seen {u.daysSince === 0 ? "today" : `${u.daysSince}d ago`}</div>
+                            </div>
+                        </div>
+                    ))}
+                    {engagementList.length === 0 && <div style={S.subText}>No user activity recorded yet.</div>}
+                </div>
+            </div>
 
-        const emailHtml = `
+            {/* Login Timeline */}
+            <div style={S.card}>
+                <div style={S.sectionTitle}>Login Timeline <InfoTip id="logins" text="A visual chart of daily login counts over the last 14 days. Taller bars = more logins that day. Useful for spotting engagement patterns and drop-offs." /></div>
+                <div style={{ display: "flex", gap: 2, alignItems: "flex-end", height: 60, marginTop: 10 }}>
+                    {Object.entries(dailyLogins).sort().slice(-14).map(([day, count]) => (
+                        <div key={day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                            <div style={{ width: "100%", background: `linear-gradient(180deg, ${B.bl}, ${B.pk})`, borderRadius: 3, height: Math.max(4, (count / 10) * 50) }} />
+                            <div style={{ fontSize: 7, color: "rgba(255,255,255,0.2)", marginTop: 2 }}>{day.slice(5)}</div>
+                        </div>
+                    ))}
+                </div>
+                {Object.keys(dailyLogins).length === 0 && <div style={S.subText}>No login events recorded yet.</div>}
+            </div>
+        </div>
+    );
+};
+
+// ═══════════════════════════════════════════════
+//  RENDER: EMAIL TEMPLATE TAB
+// ═══════════════════════════════════════════════
+const renderEmailTemplate = () => {
+    const resolvedSubject = emailSubject.replace("{{academyName}}", emailAcademyName);
+
+    const emailHtml = `
             <div style="max-width:600px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;background:#0f1117;color:#e4e4e7;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
                 <!-- Header -->
                 <div style="background:linear-gradient(135deg,#1a1b2e,#0d1b3e);padding:32px 40px 24px;text-align:center;border-bottom:3px solid #e91e63;">
@@ -1026,211 +1423,211 @@ export default function AdminDashboard({
             </div>
         `;
 
-        return (
-            <div>
-                {/* Config Panel */}
-                <div style={S.card}>
-                    <div style={S.sectionTitle}>✉️ Email Branding Configuration <InfoTip id="emailconfig" text="Configure how credential emails appear to players and parents. Changes here update the live preview below and will be used when sending credentials." /></div>
-                    <div style={S.subText}>These settings control the branding of all outgoing credential emails.</div>
+    return (
+        <div>
+            {/* Config Panel */}
+            <div style={S.card}>
+                <div style={S.sectionTitle}>✉️ Email Branding Configuration <InfoTip id="emailconfig" text="Configure how credential emails appear to players and parents. Changes here update the live preview below and will be used when sending credentials." /></div>
+                <div style={S.subText}>These settings control the branding of all outgoing credential emails.</div>
 
-                    <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                        {/* Academy Name */}
-                        <div>
-                            <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Academy Name</label>
-                            <input
-                                value={emailAcademyName}
-                                onChange={e => setEmailAcademyName(e.target.value)}
-                                style={S.input}
-                            />
-                        </div>
-                        {/* Sender Name */}
-                        <div>
-                            <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Sender Name</label>
-                            <input
-                                value={emailSenderName}
-                                onChange={e => setEmailSenderName(e.target.value)}
-                                style={S.input}
-                            />
-                        </div>
-                        {/* Reply-To */}
-                        <div>
-                            <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Reply-To Address</label>
-                            <input
-                                value={emailReplyTo}
-                                onChange={e => setEmailReplyTo(e.target.value)}
-                                style={S.input}
-                            />
-                        </div>
-                        {/* Subject */}
-                        <div>
-                            <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Subject Line</label>
-                            <input
-                                value={emailSubject}
-                                onChange={e => setEmailSubject(e.target.value)}
-                                style={S.input}
-                            />
-                        </div>
-                        {/* Login URL */}
-                        <div style={{ gridColumn: "1 / -1" }}>
-                            <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Login URL</label>
-                            <input
-                                value={emailLoginUrl}
-                                onChange={e => setEmailLoginUrl(e.target.value)}
-                                style={S.input}
-                            />
-                        </div>
-                    </div>
-
-                    {/* Heading */}
-                    <div style={{ marginTop: 12 }}>
-                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Email Heading</label>
+                <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                    {/* Academy Name */}
+                    <div>
+                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Academy Name</label>
                         <input
-                            value={emailHeading}
-                            onChange={e => setEmailHeading(e.target.value)}
+                            value={emailAcademyName}
+                            onChange={e => setEmailAcademyName(e.target.value)}
                             style={S.input}
                         />
                     </div>
-
-                    {/* Body */}
-                    <div style={{ marginTop: 12 }}>
-                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Email Body</label>
-                        <textarea
-                            value={emailBody}
-                            onChange={e => setEmailBody(e.target.value)}
-                            rows={3}
-                            style={{ ...S.input, resize: "vertical", lineHeight: 1.6 }}
+                    {/* Sender Name */}
+                    <div>
+                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Sender Name</label>
+                        <input
+                            value={emailSenderName}
+                            onChange={e => setEmailSenderName(e.target.value)}
+                            style={S.input}
                         />
                     </div>
-
-                    {/* Footer */}
-                    <div style={{ marginTop: 12 }}>
-                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Footer Text</label>
-                        <textarea
-                            value={emailFooter}
-                            onChange={e => setEmailFooter(e.target.value)}
-                            rows={2}
-                            style={{ ...S.input, resize: "vertical", lineHeight: 1.6 }}
+                    {/* Reply-To */}
+                    <div>
+                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Reply-To Address</label>
+                        <input
+                            value={emailReplyTo}
+                            onChange={e => setEmailReplyTo(e.target.value)}
+                            style={S.input}
                         />
                     </div>
-
-                    {/* Email Signature */}
-                    <div style={{ marginTop: 16, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 16 }}>
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                            <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)" }}>✍️ Email Signature (HTML)</label>
-                            {emailSignature && (
-                                <button
-                                    onClick={() => setEmailSignature("")}
-                                    style={{ ...S.btn("#ef4444"), padding: "3px 10px", fontSize: 9 }}
-                                >Clear Signature</button>
-                            )}
-                        </div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 8, lineHeight: 1.5 }}>
-                            Paste your Outlook signature HTML below. To get it: Open Outlook → Settings → Signatures → Copy your signature → Paste here. It will render in the email footer.
-                        </div>
-                        <textarea
-                            value={emailSignature}
-                            onChange={e => setEmailSignature(e.target.value)}
-                            placeholder='Paste your Outlook signature HTML here...'
-                            rows={5}
-                            style={{ ...S.input, resize: "vertical", lineHeight: 1.5, fontFamily: "monospace", fontSize: 10 }}
+                    {/* Subject */}
+                    <div>
+                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Subject Line</label>
+                        <input
+                            value={emailSubject}
+                            onChange={e => setEmailSubject(e.target.value)}
+                            style={S.input}
                         />
+                    </div>
+                    {/* Login URL */}
+                    <div style={{ gridColumn: "1 / -1" }}>
+                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Login URL</label>
+                        <input
+                            value={emailLoginUrl}
+                            onChange={e => setEmailLoginUrl(e.target.value)}
+                            style={S.input}
+                        />
+                    </div>
+                </div>
+
+                {/* Heading */}
+                <div style={{ marginTop: 12 }}>
+                    <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Email Heading</label>
+                    <input
+                        value={emailHeading}
+                        onChange={e => setEmailHeading(e.target.value)}
+                        style={S.input}
+                    />
+                </div>
+
+                {/* Body */}
+                <div style={{ marginTop: 12 }}>
+                    <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Email Body</label>
+                    <textarea
+                        value={emailBody}
+                        onChange={e => setEmailBody(e.target.value)}
+                        rows={3}
+                        style={{ ...S.input, resize: "vertical", lineHeight: 1.6 }}
+                    />
+                </div>
+
+                {/* Footer */}
+                <div style={{ marginTop: 12 }}>
+                    <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Footer Text</label>
+                    <textarea
+                        value={emailFooter}
+                        onChange={e => setEmailFooter(e.target.value)}
+                        rows={2}
+                        style={{ ...S.input, resize: "vertical", lineHeight: 1.6 }}
+                    />
+                </div>
+
+                {/* Email Signature */}
+                <div style={{ marginTop: 16, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 16 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)" }}>✍️ Email Signature (HTML)</label>
                         {emailSignature && (
-                            <div style={{ marginTop: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: 12, background: "rgba(255,255,255,0.02)" }}>
-                                <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.35)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>SIGNATURE PREVIEW</div>
-                                <div dangerouslySetInnerHTML={{ __html: emailSignature }} />
-                            </div>
+                            <button
+                                onClick={() => setEmailSignature("")}
+                                style={{ ...S.btn("#ef4444"), padding: "3px 10px", fontSize: 9 }}
+                            >Clear Signature</button>
                         )}
                     </div>
-                </div>
-
-                {/* Envelope Info */}
-                <div style={S.card}>
-                    <div style={S.sectionTitle}>📬 Envelope Details</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 8 }}>
-                        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 14px" }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>FROM</div>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: "#e4e4e7" }}>{emailSenderName}</div>
-                            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>noreply@rramelbourne.com</div>
-                        </div>
-                        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 14px" }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>REPLY-TO</div>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: B.pk }}>{emailReplyTo}</div>
-                        </div>
-                        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 14px" }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>SUBJECT</div>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: "#e4e4e7" }}>{resolvedSubject}</div>
-                        </div>
+                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 8, lineHeight: 1.5 }}>
+                        Paste your Outlook signature HTML below. To get it: Open Outlook → Settings → Signatures → Copy your signature → Paste here. It will render in the email footer.
                     </div>
+                    <textarea
+                        value={emailSignature}
+                        onChange={e => setEmailSignature(e.target.value)}
+                        placeholder='Paste your Outlook signature HTML here...'
+                        rows={5}
+                        style={{ ...S.input, resize: "vertical", lineHeight: 1.5, fontFamily: "monospace", fontSize: 10 }}
+                    />
+                    {emailSignature && (
+                        <div style={{ marginTop: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: 12, background: "rgba(255,255,255,0.02)" }}>
+                            <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.35)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>SIGNATURE PREVIEW</div>
+                            <div dangerouslySetInnerHTML={{ __html: emailSignature }} />
+                        </div>
+                    )}
                 </div>
+            </div>
 
-                {/* Live Preview */}
-                <div style={S.card}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                        <div style={S.sectionTitle}>👁️ Live Email Preview</div>
-                        <div style={{ display: "flex", gap: 6 }}>
-                            <span style={{ ...S.badge("#22c55e"), fontSize: 9 }}>Sample Data</span>
-                            <span style={{ ...S.badge(B.pk), fontSize: 9 }}>Player: Jai Smith</span>
-                        </div>
+            {/* Envelope Info */}
+            <div style={S.card}>
+                <div style={S.sectionTitle}>📬 Envelope Details</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 8 }}>
+                    <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 14px" }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>FROM</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e4e4e7" }}>{emailSenderName}</div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>noreply@rramelbourne.com</div>
                     </div>
-                    <div style={S.subText}>This is exactly what the recipient will see in their inbox. The {{ playerName }} placeholder will be replaced with the actual player's name.</div>
-
-                    {/* Email frame */}
-                    <div style={{
-                        marginTop: 16,
-                        border: "1px solid rgba(255,255,255,0.12)",
-                        borderRadius: 12,
-                        overflow: "hidden",
-                        boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
-                    }}>
-                        {/* Fake email client header */}
-                        <div style={{
-                            background: "rgba(255,255,255,0.06)",
-                            padding: "10px 16px",
-                            borderBottom: "1px solid rgba(255,255,255,0.08)",
-                            display: "flex",
-                            gap: 8,
-                            alignItems: "center",
-                        }}>
-                            <div style={{ display: "flex", gap: 5 }}>
-                                <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#ef4444" }} />
-                                <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#f59e0b" }} />
-                                <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#22c55e" }} />
-                            </div>
-                            <div style={{ flex: 1, fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: F, textAlign: "center" }}>
-                                ✉️ {resolvedSubject}
-                            </div>
-                        </div>
-                        {/* Rendered email */}
-                        <div
-                            style={{ padding: 20, background: "#0a0b10" }}
-                            dangerouslySetInnerHTML={{ __html: emailHtml.replace(/\{\{playerName\}\}/g, "Jai Smith") }}
-                        />
+                    <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 14px" }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>REPLY-TO</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: B.pk }}>{emailReplyTo}</div>
+                    </div>
+                    <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 14px" }}>
+                        <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>SUBJECT</div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e4e4e7" }}>{resolvedSubject}</div>
                     </div>
                 </div>
             </div>
-        );
-    };
 
-    // ═══════════════════════════════════════════════
-    //  MAIN RENDER
-    // ═══════════════════════════════════════════════
-    const content = {
-        visualizer: renderVisualizer,
-        controls: renderControls,
-        tiers: renderTiers,
-        players: renderPlayers,
-        rankings: renderRankings,
-        users: renderUsers,
-        email: renderEmailTemplate,
-        analytics: renderAnalytics,
-    };
+            {/* Live Preview */}
+            <div style={S.card}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                    <div style={S.sectionTitle}>👁️ Live Email Preview</div>
+                    <div style={{ display: "flex", gap: 6 }}>
+                        <span style={{ ...S.badge("#22c55e"), fontSize: 9 }}>Sample Data</span>
+                        <span style={{ ...S.badge(B.pk), fontSize: 9 }}>Player: Jai Smith</span>
+                    </div>
+                </div>
+                <div style={S.subText}>This is exactly what the recipient will see in their inbox. The {{ playerName }} placeholder will be replaced with the actual player's name.</div>
 
-    return (
-        <div style={S.page} onClick={() => tipOpen && setTipOpen(null)}>
+                {/* Email frame */}
+                <div style={{
+                    marginTop: 16,
+                    border: "1px solid rgba(255,255,255,0.12)",
+                    borderRadius: 12,
+                    overflow: "hidden",
+                    boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
+                }}>
+                    {/* Fake email client header */}
+                    <div style={{
+                        background: "rgba(255,255,255,0.06)",
+                        padding: "10px 16px",
+                        borderBottom: "1px solid rgba(255,255,255,0.08)",
+                        display: "flex",
+                        gap: 8,
+                        alignItems: "center",
+                    }}>
+                        <div style={{ display: "flex", gap: 5 }}>
+                            <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#ef4444" }} />
+                            <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#f59e0b" }} />
+                            <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#22c55e" }} />
+                        </div>
+                        <div style={{ flex: 1, fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: F, textAlign: "center" }}>
+                            ✉️ {resolvedSubject}
+                        </div>
+                    </div>
+                    {/* Rendered email */}
+                    <div
+                        style={{ padding: 20, background: "#0a0b10" }}
+                        dangerouslySetInnerHTML={{ __html: emailHtml.replace(/\{\{playerName\}\}/g, "Jai Smith") }}
+                    />
+                </div>
+            </div>
+        </div>
+    );
+};
+
+// ═══════════════════════════════════════════════
+//  MAIN RENDER
+// ═══════════════════════════════════════════════
+const content = {
+    visualizer: renderVisualizer,
+    controls: renderControls,
+    tiers: renderTiers,
+    players: renderPlayers,
+    rankings: renderRankings,
+    users: renderUsers,
+    email: renderEmailTemplate,
+    analytics: renderAnalytics,
+};
+
+return (
+    <div style={S.page} onClick={() => tipOpen && setTipOpen(null)}>
 
 
-            {/* CSS Keyframe Animations */}
-            <style ref={styleRef}>{`
+        {/* CSS Keyframe Animations */}
+        <style ref={styleRef}>{`
                 @keyframes adminSlideUp {
                     from { opacity: 0; transform: translateY(12px); }
                     to { opacity: 1; transform: translateY(0); }
@@ -1256,92 +1653,93 @@ export default function AdminDashboard({
                 }
             `}</style>
 
-            {/* Top Bar */}
-            <div style={S.topBar}>
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                    {/* Logo with glow ring */}
-                    <div style={{
-                        width: 42, height: 42, borderRadius: "50%",
-                        background: `${B.pk}18`,
-                        display: "flex", alignItems: "center", justifyContent: "center",
-                        animation: "adminGlow 3s ease-in-out infinite",
-                        border: `2px solid ${B.pk}40`,
-                    }}>
-                        <img src={LOGO} alt="" style={{ width: 28, height: 28, objectFit: "contain" }} />
-                    </div>
-                    <div>
-                        <div style={{
-                            fontSize: 15, fontWeight: 900, color: "#e4e4e7", fontFamily: F,
-                            letterSpacing: 0.5,
-                        }}>Admin Dashboard</div>
-                        <div style={{
-                            fontSize: 9, fontWeight: 600, color: B.pk, fontFamily: F,
-                            letterSpacing: 1.5, textTransform: "uppercase",
-                        }}>RRA DNA Engine Command Center</div>
-                    </div>
-                </div>
-                <button
-                    onClick={onBack}
-                    style={{
-                        ...S.btn("rgba(255,255,255,0.08)"), color: "rgba(255,255,255,0.6)",
-                        border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(8px)",
-                    }}
-                >← Back to Portal</button>
-            </div>
-
-            {/* Tab Bar */}
-            <div style={S.tabBar}>
-                {TABS.map(t => (
-                    <button
-                        key={t.id}
-                        onClick={() => setTab(t.id)}
-                        onMouseEnter={() => setHoveredTab(t.id)}
-                        onMouseLeave={() => setHoveredTab(null)}
-                        style={S.tab(tab === t.id, hoveredTab === t.id)}
-                    >
-                        {t.icon} {t.label}
-                    </button>
-                ))}
-            </div>
-
-            {/* Content */}
-            <div style={{ padding: "16px 16px 32px", maxWidth: 1100, margin: "0 auto" }}>
-                {loading ? (
-                    <div style={{ textAlign: "center", padding: 60 }}>
-                        <div style={{
-                            width: 48, height: 48, borderRadius: "50%",
-                            border: `3px solid ${B.pk}30`, borderTop: `3px solid ${B.pk}`,
-                            margin: "0 auto 16px", animation: "adminPulse 1s ease-in-out infinite",
-                        }} />
-                        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontFamily: F, animation: "adminLoadPulse 1.5s ease-in-out infinite" }}>
-                            Loading admin data...
-                        </div>
-                    </div>
-                ) : (
-                    <>
-                        <StatRow />
-                        {content[tab]?.()}
-                    </>
-                )}
-            </div>
-
-            {/* Toast */}
-            {toast && <div style={S.toastStyle(toast.type)}>{toast.msg}</div>}
-
-            {/* Saving overlay */}
-            {saving && (
+        {/* Top Bar */}
+        <div style={S.topBar}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                {/* Logo with glow ring */}
                 <div style={{
-                    position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-                    background: "rgba(0,0,0,0.3)", backdropFilter: "blur(2px)",
-                    display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9998,
+                    width: 42, height: 42, borderRadius: "50%",
+                    background: `${B.pk}18`,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    animation: "adminGlow 3s ease-in-out infinite",
+                    border: `2px solid ${B.pk}40`,
                 }}>
-                    <div style={{
-                        background: B.nvD, border: `1px solid ${B.pk}40`, borderRadius: 12,
-                        padding: "16px 32px", fontFamily: F, fontSize: 12, fontWeight: 700,
-                        color: B.pk, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-                    }}>Saving...</div>
+                    <img src={LOGO} alt="" style={{ width: 28, height: 28, objectFit: "contain" }} />
                 </div>
+                <div>
+                    <div style={{
+                        fontSize: 15, fontWeight: 900, color: "#e4e4e7", fontFamily: F,
+                        letterSpacing: 0.5,
+                    }}>Admin Dashboard</div>
+                    <div style={{
+                        fontSize: 9, fontWeight: 600, color: B.pk, fontFamily: F,
+                        letterSpacing: 1.5, textTransform: "uppercase",
+                    }}>RRA DNA Engine Command Center</div>
+                </div>
+            </div>
+            <button
+                onClick={onSwitchToCoach || onBack}
+                style={{
+                    ...S.btn("rgba(255,255,255,0.08)"), color: "rgba(255,255,255,0.6)",
+                    border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(8px)",
+                    display: 'flex', alignItems: 'center', gap: 6,
+                }}
+            >🏏 Coach Portal</button>
+        </div>
+
+        {/* Tab Bar */}
+        <div style={S.tabBar}>
+            {TABS.map(t => (
+                <button
+                    key={t.id}
+                    onClick={() => setTab(t.id)}
+                    onMouseEnter={() => setHoveredTab(t.id)}
+                    onMouseLeave={() => setHoveredTab(null)}
+                    style={S.tab(tab === t.id, hoveredTab === t.id)}
+                >
+                    {t.icon} {t.label}
+                </button>
+            ))}
+        </div>
+
+        {/* Content */}
+        <div style={{ padding: "16px 16px 32px", maxWidth: 1100, margin: "0 auto" }}>
+            {loading ? (
+                <div style={{ textAlign: "center", padding: 60 }}>
+                    <div style={{
+                        width: 48, height: 48, borderRadius: "50%",
+                        border: `3px solid ${B.pk}30`, borderTop: `3px solid ${B.pk}`,
+                        margin: "0 auto 16px", animation: "adminPulse 1s ease-in-out infinite",
+                    }} />
+                    <div style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontFamily: F, animation: "adminLoadPulse 1.5s ease-in-out infinite" }}>
+                        Loading admin data...
+                    </div>
+                </div>
+            ) : (
+                <>
+                    <StatRow />
+                    {content[tab]?.()}
+                </>
             )}
         </div>
-    );
+
+        {/* Toast */}
+        {toast && <div style={S.toastStyle(toast.type)}>{toast.msg}</div>}
+
+        {/* Saving overlay */}
+        {saving && (
+            <div style={{
+                position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+                background: "rgba(0,0,0,0.3)", backdropFilter: "blur(2px)",
+                display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9998,
+            }}>
+                <div style={{
+                    background: B.nvD, border: `1px solid ${B.pk}40`, borderRadius: 12,
+                    padding: "16px 32px", fontFamily: F, fontSize: 12, fontWeight: 700,
+                    color: B.pk, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                }}>Saving...</div>
+            </div>
+        )}
+    </div>
+);
 }

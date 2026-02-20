@@ -173,3 +173,15 @@ export async function loadAllUserProfiles() {
     if (error) throw error;
     return data || [];
 }
+
+// ──────────────────────────────────
+// DELETED MEMBERS (30-day recovery)
+// ──────────────────────────────────
+export async function loadDeletedMembers() {
+    const { data, error } = await supabase
+        .from('deleted_members')
+        .select('*')
+        .order('deleted_at', { ascending: false });
+    if (error) throw error;
+    return data || [];
+}

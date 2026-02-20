@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1920, height=1080">
+    <title>RRA DNA Report — Presentation Slide</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,600;0,700;0,800;0,900&display=swap"
+        rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            width: 1920px;
+            height: 1080px;
+            overflow: hidden;
+            font-family: 'Montserrat', sans-serif;
+            background: linear-gradient(135deg, #001D48 0%, #0a2d5c 40%, #0075C9 100%);
+            color: #fff;
+            position: relative;
+        }
+
+        /* Subtle background circles */
+        .bg-circle {
+            position: absolute;
+            border-radius: 50%;
+            border: 1.5px solid rgba(255, 255, 255, 0.04);
+            pointer-events: none;
+        }
+
+        .bg-circle.c1 {
+            width: 600px;
+            height: 600px;
+            top: -180px;
+            right: -100px;
+        }
+
+        .bg-circle.c2 {
+            width: 400px;
+            height: 400px;
+            bottom: -100px;
+            left: -80px;
+        }
+
+        .bg-circle.c3 {
+            width: 250px;
+            height: 250px;
+            top: 300px;
+            right: 400px;
+        }
+
+        /* Pink accent bar at bottom */
+        .accent-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 6px;
+            background: linear-gradient(90deg, #E96BB0, #0075C9);
+        }
+
+        /* Header area */
+        .header {
+            padding: 48px 80px 0;
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+
+        .logo-ring {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #E96BB0, #0075C9);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            font-weight: 900;
+            color: #fff;
+            box-shadow: 0 4px 20px rgba(233, 107, 176, 0.3);
+        }
+
+        .header-text .label {
+            font-size: 13px;
+            font-weight: 700;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: #E96BB0;
+        }
+
+        .header-text .title {
+            font-size: 42px;
+            font-weight: 900;
+            line-height: 1.1;
+            margin-top: 4px;
+            background: linear-gradient(90deg, #fff, rgba(255, 255, 255, 0.85));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .header-text .subtitle {
+            font-size: 16px;
+            font-weight: 400;
+            color: rgba(255, 255, 255, 0.45);
+            margin-top: 6px;
+            letter-spacing: 1px;
+        }
+
+        /* Main content */
+        .content {
+            display: flex;
+            padding: 40px 80px 60px;
+            gap: 60px;
+        }
+
+        /* Left column */
+        .left {
+            flex: 1.1;
+            display: flex;
+            flex-direction: column;
+            gap: 32px;
+        }
+
+        .section {
+            position: relative;
+        }
+
+        .section-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+
+        .section-header .bar {
+            width: 4px;
+            height: 28px;
+            border-radius: 2px;
+        }
+
+        .section-header .bar.pink {
+            background: #E96BB0;
+        }
+
+        .section-header .bar.blue {
+            background: #0075C9;
+        }
+
+        .section-header h2 {
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+        }
+
+        .bullet-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            padding-left: 16px;
+        }
+
+        .bullet-list li {
+            font-size: 17px;
+            font-weight: 400;
+            line-height: 1.5;
+            color: rgba(255, 255, 255, 0.85);
+            position: relative;
+            padding-left: 24px;
+        }
+
+        .bullet-list li::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 10px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+
+        .bullet-list.pink li::before {
+            background: #E96BB0;
+        }
+
+        .bullet-list.blue li::before {
+            background: #0075C9;
+        }
+
+        .bullet-list li strong {
+            font-weight: 700;
+            color: #fff;
+        }
+
+        /* Right column — DNA Card mockup */
+        .right {
+            flex: 0.75;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 20px;
+            padding-top: 12px;
+        }
+
+        .dna-card {
+            width: 420px;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+        }
+
+        .dna-card-header {
+            background: linear-gradient(135deg, #001D48 0%, #0075C9 60%, #E96BB0 100%);
+            padding: 20px 24px 16px;
+            position: relative;
+        }
+
+        .dna-card-header .sub {
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: rgba(255, 255, 255, 0.5);
+        }
+
+        .dna-card-header .name {
+            font-size: 22px;
+            font-weight: 900;
+            margin-top: 2px;
+        }
+
+        .dna-card-header .meta {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.5);
+            margin-top: 4px;
+        }
+
+        .dna-card-header .accent-line {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: #E96BB0;
+        }
+
+        .dna-card-body {
+            padding: 24px;
+        }
+
+        /* PDI Ring */
+        .pdi-section {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            margin-bottom: 20px;
+        }
+
+        .pdi-ring {
+            position: relative;
+            width: 100px;
+            height: 100px;
+            flex-shrink: 0;
+        }
+
+        .pdi-ring svg {
+            width: 100px;
+            height: 100px;
+        }
+
+        .pdi-ring .ring-bg {
+            fill: none;
+            stroke: rgba(255, 255, 255, 0.08);
+            stroke-width: 6;
+        }
+
+        .pdi-ring .ring-fg {
+            fill: none;
+            stroke: #E96BB0;
+            stroke-width: 6;
+            stroke-linecap: round;
+            stroke-dasharray: 264;
+            stroke-dashoffset: 62;
+            transform: rotate(-90deg);
+            transform-origin: center;
+        }
+
+        .pdi-ring .center {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .pdi-ring .score {
+            font-size: 28px;
+            font-weight: 900;
+        }
+
+        .pdi-ring .label {
+            font-size: 8px;
+            font-weight: 700;
+            color: rgba(255, 255, 255, 0.4);
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .pdi-details .level {
+            font-size: 14px;
+            font-weight: 800;
+            color: #10B981;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+        }
+
+        .pdi-details .ccm-label {
+            font-size: 10px;
+            color: rgba(255, 255, 255, 0.4);
+            margin-top: 6px;
+        }
+
+        /* Domain bars */
+        .domain-bars {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-bottom: 16px;
+        }
+
+        .domain-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .domain-row .d-label {
+            font-size: 10px;
+            font-weight: 600;
+            width: 110px;
+            text-align: right;
+            color: rgba(255, 255, 255, 0.6);
+        }
+
+        .domain-row .d-bar-bg {
+            flex: 1;
+            height: 8px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .domain-row .d-bar-fill {
+            height: 100%;
+            border-radius: 4px;
+        }
+
+        .domain-row .d-val {
+            font-size: 10px;
+            font-weight: 700;
+            width: 30px;
+            text-align: right;
+        }
+
+        /* Archetype badges */
+        .archetypes {
+            display: flex;
+            gap: 8px;
+            margin-top: 16px;
+        }
+
+        .arch-badge {
+            flex: 1;
+            padding: 8px 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .arch-badge.pink {
+            background: rgba(233, 107, 176, 0.15);
+            border: 1px solid rgba(233, 107, 176, 0.3);
+        }
+
+        .arch-badge.blue {
+            background: rgba(0, 117, 201, 0.15);
+            border: 1px solid rgba(0, 117, 201, 0.3);
+        }
+
+        .arch-badge .arch-icon {
+            font-size: 16px;
+        }
+
+        .arch-badge .arch-label {
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-top: 4px;
+        }
+
+        .arch-badge.pink .arch-label {
+            color: #E96BB0;
+        }
+
+        .arch-badge.blue .arch-label {
+            color: #0075C9;
+        }
+
+        /* Flow diagram */
+        .flow-section {
+            margin-top: 8px;
+        }
+
+        .flow-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        .flow-box {
+            padding: 10px 16px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 700;
+            text-align: center;
+            letter-spacing: 0.5px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        .flow-box.highlight {
+            background: linear-gradient(135deg, rgba(233, 107, 176, 0.2), rgba(0, 117, 201, 0.2));
+            border-color: rgba(233, 107, 176, 0.4);
+        }
+
+        .flow-arrow {
+            font-size: 18px;
+            color: rgba(255, 255, 255, 0.3);
+        }
+
+        /* Footer */
+        .footer {
+            position: absolute;
+            bottom: 16px;
+            left: 80px;
+            right: 80px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .footer .tag {
+            font-size: 11px;
+            color: rgba(255, 255, 255, 0.25);
+            font-weight: 600;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- Background decoration -->
+    <div class="bg-circle c1"></div>
+    <div class="bg-circle c2"></div>
+    <div class="bg-circle c3"></div>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="logo-ring">RR</div>
+        <div class="header-text">
+            <div class="label">Rajasthan Royals Academy Melbourne</div>
+            <div class="title">Player DNA Report</div>
+            <div class="subtitle">Purpose &amp; Goal — Coach Presentation</div>
+        </div>
+    </div>
+
+    <!-- Content -->
+    <div class="content">
+        <!-- Left: Purpose & Goal -->
+        <div class="left">
+            <div class="section">
+                <div class="section-header">
+                    <div class="bar pink"></div>
+                    <h2>Purpose</h2>
+                </div>
+                <ul class="bullet-list pink">
+                    <li>Build a <strong>complete, data-driven profile</strong> of every academy player — all in one
+                        place</li>
+                    <li>Combine <strong>player self-assessment</strong> with <strong>expert coach evaluation</strong>
+                        for a balanced view</li>
+                    <li>Assess across <strong>5 key domains</strong>: Technical, Game Intelligence, Mental &amp;
+                        Character, Physical &amp; Athletic, and Phase Effectiveness</li>
+                    <li>Generate a single <strong>Player Development Index (PDI)</strong> score, weighted by the
+                        <strong>Competition Context Engine</strong></li>
+                </ul>
+            </div>
+
+            <div class="section">
+                <div class="section-header">
+                    <div class="bar blue"></div>
+                    <h2>Goal</h2>
+                </div>
+                <ul class="bullet-list blue">
+                    <li>Give coaches a <strong>clear, objective snapshot</strong> of each player's strengths and growth
+                        areas</li>
+                    <li>Identify <strong>high-potential players earlier</strong> through competition-level contextual
+                        rating</li>
+                    <li><strong>Track development over time</strong> with consistent benchmarks across the squad</li>
+                    <li>Empower players with <strong>self-awareness</strong> through their own voice, goals, and
+                        self-ratings</li>
+                </ul>
+            </div>
+        </div>
+
+        <!-- Right: DNA Card Preview + Flow -->
+        <div class="right">
+            <div class="dna-card">
+                <div class="dna-card-header">
+                    <div class="sub">Rajasthan Royals Academy Melbourne</div>
+                    <div class="name">Player DNA Report</div>
+                    <div class="meta">Liam Patel • U14 • Pace Bowler • Doncaster CC</div>
+                    <div class="accent-line"></div>
+                </div>
+                <div class="dna-card-body">
+                    <!-- PDI -->
+                    <div class="pdi-section">
+                        <div class="pdi-ring">
+                            <svg viewBox="0 0 100 100">
+                                <circle cx="50" cy="50" r="42" class="ring-bg" />
+                                <circle cx="50" cy="50" r="42" class="ring-fg" />
+                            </svg>
+                            <div class="center">
+                                <div class="score">3.8</div>
+                                <div class="label">PDI /5.0</div>
+                            </div>
+                        </div>
+                        <div class="pdi-details">
+                            <div class="level">⬆ Advanced</div>
+                            <div class="ccm-label">Competition Context: ECA U14 Shield 1</div>
+                            <div class="ccm-label" style="margin-top:2px;">CCM: 0.92 × ARM: 1.15</div>
+                        </div>
+                    </div>
+
+                    <!-- Domain bars -->
+                    <div class="domain-bars">
+                        <div class="domain-row">
+                            <div class="d-label">Technical</div>
+                            <div class="d-bar-bg">
+                                <div class="d-bar-fill" style="width:72%;background:#E96BB0;"></div>
+                            </div>
+                            <div class="d-val" style="color:#E96BB0;">72%</div>
+                        </div>
+                        <div class="domain-row">
+                            <div class="d-label">Game Intelligence</div>
+                            <div class="d-bar-bg">
+                                <div class="d-bar-fill" style="width:65%;background:#0EA5E9;"></div>
+                            </div>
+                            <div class="d-val" style="color:#0EA5E9;">65%</div>
+                        </div>
+                        <div class="domain-row">
+                            <div class="d-label">Mental &amp; Character</div>
+                            <div class="d-bar-bg">
+                                <div class="d-bar-fill" style="width:78%;background:#8B5CF6;"></div>
+                            </div>
+                            <div class="d-val" style="color:#8B5CF6;">78%</div>
+                        </div>
+                        <div class="domain-row">
+                            <div class="d-label">Physical</div>
+                            <div class="d-bar-bg">
+                                <div class="d-bar-fill" style="width:60%;background:#323E48;"></div>
+                            </div>
+                            <div class="d-val" style="color:rgba(255,255,255,0.6);">60%</div>
+                        </div>
+                        <div class="domain-row">
+                            <div class="d-label">Phase Effect.</div>
+                            <div class="d-bar-bg">
+                                <div class="d-bar-fill" style="width:55%;background:#FF6B35;"></div>
+                            </div>
+                            <div class="d-val" style="color:#FF6B35;">55%</div>
+                        </div>
+                    </div>
+
+                    <!-- Archetypes -->
+                    <div class="archetypes">
+                        <div class="arch-badge pink">
+                            <div class="arch-icon">🔥</div>
+                            <div class="arch-label">The Dual Threat</div>
+                        </div>
+                        <div class="arch-badge blue">
+                            <div class="arch-icon">🎯</div>
+                            <div class="arch-label">Wicket Hunter</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Flow -->
+            <div class="flow-section">
+                <div class="flow-row">
+                    <div class="flow-box">🏏 Player<br>Onboarding</div>
+                    <div class="flow-arrow">→</div>
+                    <div class="flow-box">📋 Coach<br>Assessment</div>
+                    <div class="flow-arrow">→</div>
+                    <div class="flow-box highlight">⚡ DNA<br>Report</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="footer">
+        <div class="tag">CONFIDENTIAL — COACHING STAFF ONLY</div>
+        <div class="tag">RRA Melbourne • 2026 Season</div>
+    </div>
+
+    <div class="accent-bar"></div>
+
+</body>
+
+</html>

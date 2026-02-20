@@ -3,15 +3,21 @@ import { supabase } from '../supabaseClient';
 import { ROLES, VOICE_QS } from '../data/skillItems';
 
 export async function loadPlayersFromDB() {
+    // Fetch inactive member auth_user_ids to exclude archived players from all calculations
+    const { data: inactiveMembers } = await supabase.from('program_members').select('auth_user_id').eq('active', false);
+    const inactiveAuthIds = new Set((inactiveMembers || []).map(m => m.auth_user_id).filter(Boolean));
+
     const { data: pRows, error: pErr } = await supabase.from('players').select('*').eq('submitted', true).order('created_at', { ascending: false });
     if (pErr) { console.error('Load players error:', pErr); return []; }
-    const playerIds = pRows.map(p => p.id);
+    // Exclude archived players
+    const activePRows = pRows.filter(p => !p.auth_user_id || !inactiveAuthIds.has(p.auth_user_id));
+    const playerIds = activePRows.map(p => p.id);
     if (!playerIds.length) return [];
     const [{ data: gRows }, { data: aRows }] = await Promise.all([
         supabase.from('competition_grades').select('*').in('player_id', playerIds).order('sort_order'),
         supabase.from('coach_assessments').select('*').in('player_id', playerIds)
     ]);
-    return pRows.map(p => {
+    return activePRows.map(p => {
         const grades = (gRows || []).filter(g => g.player_id === p.id).map(g => ({
             level: g.level, ageGroup: g.age_group, shield: g.shield, team: g.team, association: g.association,
             matches: String(g.matches || ''), batInn: String(g.batting_innings || ''), runs: String(g.runs || ''), hs: String(g.high_score || ''), avg: String(g.batting_avg || ''),

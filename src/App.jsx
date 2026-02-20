@@ -50,8 +50,8 @@ export default function App() {
   // Derive portal from auth
   const portal = userProfile?.role || null;
 
-  // Admin check — master admin username
-  const ADMIN_EMAILS = ['alex.lewis@rra.internal', 'alex.lewis@rramelbourne.com', 'lewia26@rra.internal', 'alex@rramelbourne.com'];
+  // Admin check — only alex.lewis has system-wide admin access
+  const ADMIN_EMAILS = ['alex.lewis@rra.internal', 'alex.lewis@rramelbourne.com'];
   const isAdmin = ADMIN_EMAILS.includes(session?.user?.email) || ADMIN_EMAILS.includes(userProfile?.email);
 
   const [players, setPlayers] = useState([]);
@@ -269,6 +269,32 @@ export default function App() {
   const goTop = () => window.scrollTo(0, 0);
   const btnSty = (ok, full) => ({ padding: full ? "14px 20px" : "8px 16px", borderRadius: 8, border: "none", background: ok ? `linear-gradient(135deg,${B.bl},${B.pk})` : B.g200, color: ok ? B.w : B.g400, fontSize: 13, fontWeight: 800, fontFamily: F, cursor: ok ? "pointer" : "default", letterSpacing: .5, textTransform: "uppercase", width: full ? "100%" : "auto", marginTop: 6 });
   const backBtn = { marginTop: 8, padding: "10px 16px", border: `1px solid ${B.g200}`, borderRadius: 6, background: "transparent", fontSize: 11, fontWeight: 600, color: B.g600, cursor: "pointer", fontFamily: F, width: "100%" };
+
+  // ═══ PORTAL SWITCHER (admin only) ═══
+  const PortalSwitcher = () => {
+    if (!isAdmin) return null;
+    const isOnAdmin = cView === "admin";
+    const tabs = [
+      { id: "list", label: "🏏 Coach Portal", active: !isOnAdmin },
+      { id: "admin", label: "🔧 Admin Portal", active: isOnAdmin },
+    ];
+    return (
+      <div style={{ display: 'flex', background: `linear-gradient(135deg, ${B.nvD}, #1a1b2e)`, borderBottom: `1px solid rgba(255,255,255,0.08)`, padding: '0' }}>
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => { setCView(t.id); goTop(); }}
+            style={{
+              flex: 1, padding: '10px 16px', border: 'none', cursor: 'pointer', fontFamily: F,
+              fontSize: 11, fontWeight: t.active ? 800 : 600, letterSpacing: 0.5,
+              background: t.active ? `linear-gradient(135deg, ${t.id === 'admin' ? '#f59e0b20' : `${B.bl}20`}, transparent)` : 'transparent',
+              color: t.active ? (t.id === 'admin' ? '#fbbf24' : B.w) : 'rgba(255,255,255,0.4)',
+              borderBottom: t.active ? `2px solid ${t.id === 'admin' ? '#f59e0b' : B.bl}` : '2px solid transparent',
+              transition: 'all 0.2s',
+            }}
+          >{t.label}</button>
+        ))}
+      </div>
+    );
+  };
 
   // ═══ PLAYER PORTAL ═══
   if (portal === "player") {
@@ -531,7 +557,7 @@ export default function App() {
       </div>}
       <div style={{ padding: 12, paddingBottom: pStep < 7 ? 70 : 12, ...dkWrap }}>{renderP()}</div>
       {pStep < 7 && <div style={{ position: "fixed", bottom: 0, left: 0, right: 0, background: B.w, borderTop: `1px solid ${B.g200}`, padding: "8px 12px", display: "flex", justifyContent: "space-between", zIndex: 100 }}>
-        <button onClick={() => { if (pStep > 0) { setPStep(s => s - 1); goTop(); } else handleSignOut(); }} style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${B.g200}`, background: "transparent", fontSize: 11, fontWeight: 600, color: B.g600, cursor: "pointer", fontFamily: F }}>← Back</button>
+        <button onClick={() => { if (pStep > 0) { setPStep(s => s - 1); goTop(); } else handleSignOut(); }} style={{ padding: "8px 14px", borderRadius: 6, border: `1px solid ${B.g200}`, background: "transparent", fontSize: 11, fontWeight: 600, color: B.g600, cursor: "pointer", fontFamily: F }}>← {pStep === 0 ? 'Sign Out' : 'Back'}</button>
         <button onClick={() => { setPStep(s => Math.min(s + 1, 6)); goTop(); }} style={{ padding: "8px 14px", borderRadius: 6, border: "none", background: `linear-gradient(135deg,${B.bl},${B.pk})`, fontSize: 11, fontWeight: 700, color: B.w, cursor: "pointer", fontFamily: F }}>Next →</button>
       </div>}
     </div>);
@@ -540,6 +566,9 @@ export default function App() {
   // ═══ COACH PORTAL ═══
   if (portal === "coach") {
     const sp = selP ? players.find(p => p.id === selP) : null;
+
+    // Guard: non-admin users cannot access admin view
+    if (cView === "admin" && !isAdmin) setCView("list");
 
     // ADMIN DASHBOARD (admin only)
     if (cView === "admin" && isAdmin) return (
@@ -550,6 +579,8 @@ export default function App() {
         engineConst={engineConst}
         session={session}
         onBack={() => { setCView("list"); goTop(); }}
+        onSwitchToCoach={() => { setCView("list"); goTop(); }}
+        isAdmin={isAdmin}
         calcPDI={calcPDI}
         calcCCM={calcCCM}
         calcCohortPercentile={calcCohortPercentile}
@@ -596,10 +627,10 @@ export default function App() {
     if (cView === "list") return (<div style={{ minHeight: "100vh", fontFamily: F, background: B.g50 }}>
 
       <Hdr label="COACH PORTAL" />
+      <PortalSwitcher />
       <div style={{ padding: '4px 12px', background: B.g100, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <div style={{ fontSize: 9, color: B.g400, fontFamily: F }}>{session?.user?.email}</div>
-          {isAdmin && <button onClick={() => { setCView("admin"); }} style={{ padding: '3px 10px', borderRadius: 6, border: 'none', background: 'linear-gradient(135deg, #f59e0b, #ef4444)', fontSize: 9, fontWeight: 700, color: '#fff', cursor: 'pointer', fontFamily: F }}>🔧 Admin</button>}
         </div>
         <button onClick={handleSignOut} style={{ fontSize: 9, fontWeight: 600, color: B.red, background: 'none', border: 'none', cursor: 'pointer', fontFamily: F }}>Sign Out</button>
       </div>
