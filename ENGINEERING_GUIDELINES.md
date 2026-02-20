@@ -77,6 +77,106 @@ Before applying ANY RLS policy changes, trace every query the app makes and veri
 
 ---
 
+# SHARED DATABASE SAFETY — LANDING PAGE + DNA CARDS COEXISTENCE
+
+> **Context:** The RRA Landing Page and the DNA Cards (Academy CRM) application share a single Supabase project (`rraa-landing`, project ID: `pudldzgmluwoocwxtzhw`). This is intentional — applicants enter through the landing page and flow into the academy system on acceptance. These rules ensure neither application damages the other.
+
+## Table Ownership Zones — NEVER CROSS WITHOUT AUTHORISATION
+
+Each application "owns" specific tables. **You must not write to, alter the schema of, or create RLS policies on tables you don't own** unless the change is part of a deliberate cross-zone operation (e.g., the applicant-to-player pipeline).
+
+### Landing Page Zone (DO NOT TOUCH from DNA Cards code)
+| Table | Purpose |
+|---|---|
+| `applications` | Applicant form submissions |
+| `pipeline_stages` | Pipeline stage definitions |
+| `pipeline_entries` | Applicant pipeline tracking |
+| `pipeline_activity_log` | Pipeline action audit trail |
+| `offer_tokens` | Offer links sent to applicants |
+| `offer_responses` | Applicant acceptance/decline responses |
+| `dashboard_users` | Landing page admin users |
+
+### Academy / DNA Cards Zone
+| Table | Purpose |
+|---|---|
+| `players` | Player profiles and assessment data |
+| `competition_grades` | Player competition history and stats |
+| `coach_assessments` | Coach ratings across 6 domains |
+| `engine_constants` | Rating engine tuneable values |
+| `domain_weights` | Role-based domain weightings |
+| `skill_definitions` | Skill rubric definitions (1–5) |
+| `stat_benchmarks` | Statistical scoring benchmarks |
+| `stat_domain_weights` | Age-tier statistical weightings |
+| `stat_sub_weights` | Role-based sub-domain splits |
+| `user_profiles` | Authenticated user profiles |
+| `program_members` | Enrolled member credentials |
+| `deleted_members` | Soft-deleted member archive |
+| `programs` | Programme definitions |
+| `program_week_blocks` | Programme phase blocks |
+| `sessions` | Session plans |
+| `session_activities` | Session drill/activity assignments |
+| `drills` | Drill library |
+| `facility_zones` | Training venue zones |
+| `squad_groups` | Squad definitions |
+| `squad_allocations` | Player-to-squad assignments |
+| `analytics_events` | Usage analytics |
+| `knowledge_base` | AI knowledge documents |
+
+### Shared Reference Zone (read-only for both, modify with caution)
+| Table | Purpose |
+|---|---|
+| `competition_tiers` | CTI values and competition definitions |
+| `vmcu_associations` | Victorian cricket associations |
+| `vccl_regions` | VCCL regional mappings |
+| `association_competitions` | Association-to-tier linkages |
+| `eligibility_rules` | Competition eligibility rules |
+
+## Migration Safety Rules
+
+Migrations run against the **entire database** — a bad migration can break the landing page even if it only targets DNA Cards tables.
+
+Rules:
+- **Every migration must explicitly specify the tables it modifies** — never use broad statements like `ALTER ALL` or `GRANT ON ALL TABLES`
+- **Before running any migration, list which zone's tables it touches** — if it touches Landing Page Zone tables, STOP and flag it
+- **Use `IF EXISTS` / `IF NOT EXISTS` guards** — never let a migration crash because an object is missing
+- **Test migrations on a Supabase dev branch first** when making structural changes (new columns, altered types, dropped objects)
+- **Never run `TRUNCATE`, `DROP TABLE`, or `DROP COLUMN` on any Landing Page Zone table** — treat these as a HARD STOP
+
+## Edge Function Namespacing
+
+Both applications deploy Edge Functions to the same project. A broken deploy or naming collision can affect the other app.
+
+Rules:
+- **Landing page functions** use the prefix: `landing-` (e.g., `landing-submit-application`)
+- **DNA Cards / Academy functions** use the prefix: `create-member`, `academy-` or descriptive names that clearly belong to the CRM
+- **Before deploying any Edge Function**, confirm it does not share a name with a function from the other zone
+- **Never modify an Edge Function you don't own** without explicit confirmation
+
+## The Applicant-to-Player Pipeline (The One Authorised Cross-Zone Operation)
+
+The deliberate flow from Landing Page → Academy is the only place where data crosses zone boundaries. This is the product's core pipeline.
+
+```
+applications (Landing) → offer_tokens → offer_responses → program_members (Academy) → players (Academy)
+```
+
+Rules:
+- This conversion must happen via a **dedicated Edge Function or database trigger** — never ad-hoc queries
+- The conversion function **reads from** Landing Page tables but **writes only to** Academy tables
+- The source application record must never be modified or deleted during conversion — it remains the audit trail
+- If the conversion fails halfway, it must roll back cleanly — never leave orphaned records in the Academy zone
+- Log every conversion with enough detail to trace back to the original application
+
+## What to Do If You're Unsure
+
+If a change might affect both zones:
+1. **STOP** — do not proceed
+2. **List the tables affected** and classify them by zone
+3. **Flag it to the developer** with a plain-English explanation of the risk
+4. **Propose a safe approach** (e.g., dev branch testing, staged rollout)
+
+---
+
 # RATING ENGINE PROTECTION RULES
 
 The Player Rating Engine is the most sensitive code in the application. It converts raw assessment data into a Player Development Index (PDI) through four layers: CCM → CSS → PDI → Cohort Normalisation. Changing any input, constant, or weight cascades through every player's score.
@@ -313,6 +413,9 @@ Write clean, commented code. Structure it for maintainability, not just for the 
 - Reorder, insert into, or remove items from skill arrays without a data migration plan
 - Change engine constants, domain weights, or CTI values without impact analysis
 - Ship mock/demo data to production without a development flag
+- **Write to, alter, or drop any Landing Page Zone table** (`applications`, `pipeline_stages`, `pipeline_entries`, `pipeline_activity_log`, `offer_tokens`, `offer_responses`, `dashboard_users`) from DNA Cards code
+- **Run a migration that affects Landing Page Zone tables** without explicit confirmation and dev branch testing
+- **Deploy an Edge Function that shares a name** with a function from the other zone
 
 When flagging, explain the risk in plain English — no jargon.
 
@@ -350,9 +453,10 @@ Before EVERY push to GitHub, the `/engineering-guidelines` workflow MUST be run.
 2. **Engine tests** — `npm test` must pass with all tests green
 3. **Browser verification** — app loads, zero console errors, changed features work
 4. **Supabase RLS audit** — confirm RLS is enabled on all non-reference tables, review security/performance advisors
-5. **Git review** — confirm all changes are intentional, no secrets staged, no dead code
-6. **Guidelines improvement** — update THIS document with new learnings (see below)
-7. **Commit and push** — conventional commit format, descriptive message
+5. **Cross-zone safety check** — confirm no Landing Page Zone tables were modified, no migrations affect the landing page, no Edge Function name collisions
+6. **Git review** — confirm all changes are intentional, no secrets staged, no dead code
+7. **Guidelines improvement** — update THIS document with new learnings (see below)
+8. **Commit and push** — conventional commit format, descriptive message
 
 No code reaches GitHub without this checklist passing. No exceptions.
 
