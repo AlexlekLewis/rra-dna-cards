@@ -339,3 +339,79 @@ When flagging, explain the risk in plain English — no jargon.
 - Stage: Active development moving toward production
 - Developer profile: Expert cricket coach, novice software developer — moves fast, needs an engineering safety net
 - Repository: GitHub (AlexlekLewis/rra-dna-cards)
+
+---
+
+# PRE-PUSH ENGINEERING CHECK — MANDATORY
+
+Before EVERY push to GitHub, the `/engineering-guidelines` workflow MUST be run. This workflow is defined in `.agents/workflows/engineering-guidelines.md` and includes:
+
+1. **Build check** — `npx vite build` must pass with zero errors
+2. **Engine tests** — `npm test` must pass with all tests green
+3. **Browser verification** — app loads, zero console errors, changed features work
+4. **Supabase RLS audit** — confirm RLS is enabled on all non-reference tables, review security/performance advisors
+5. **Git review** — confirm all changes are intentional, no secrets staged, no dead code
+6. **Guidelines improvement** — update THIS document with new learnings (see below)
+7. **Commit and push** — conventional commit format, descriptive message
+
+No code reaches GitHub without this checklist passing. No exceptions.
+
+---
+
+# CONTINUOUS IMPROVEMENT — GUIDELINES ARE A LIVING DOCUMENT
+
+These guidelines must improve with every engineering check. Think of it like reviewing match footage — each session reveals something you didn't see before.
+
+## How It Works
+- Every time the `/engineering-guidelines` workflow runs, the engineer MUST review whether the guidelines need updating
+- New incidents, patterns, near-misses, or lessons learned get added as rules, traps, or notes
+- Resolved issues get documented in the Audit Log (below) so we track progress
+- Pre-existing advisories that get fixed should be celebrated and recorded
+- If a check reveals a new category of risk, add a new section or trap
+
+## What to Look For
+- Did the check reveal a pattern that should be a rule? → Add it
+- Did we nearly break something that isn't covered? → Add a trap or hard stop
+- Did we fix a long-standing advisory? → Log it
+- Did the build flag a new warning? → Document the cause and action taken
+- Is a section of the guidelines outdated? → Update it
+- Could a check have caught a recent bug earlier? → Add the check
+
+## Quality Bar
+- Every rule should have a clear "why" — no rules for rules' sake
+- Use plain English — the developer is a cricket coach, not a software engineer
+- Include incidents with dates where relevant (e.g., `[INCIDENT: 2026-02-20]`)
+- Keep rules actionable — each one should tell you what to DO, not just what to avoid
+
+---
+
+# AUDIT LOG
+
+> Each entry records a pre-push engineering check: what was found, what was improved, and what's deferred.
+
+## 2026-02-20 — Initial Audit (Pre-Push: Elite Program Module)
+
+**Changes pushed:** Elite Program module (EliteProgram.jsx, programDb.js, App.jsx route)
+
+**Results:**
+- ✅ Build passes (944 kB bundle, chunk size warning — expected for single-bundle app)
+- ✅ 43/43 engine tests pass
+- ✅ Browser loads with zero console errors
+- ✅ 29/34 tables have RLS enabled (5 reference tables intentionally open)
+
+**Security advisories (pre-existing, deferred):**
+- 5 reference tables (`assessment_domains`, `association_competitions`, `eligibility_rules`, `vccl_regions`, `vmcu_associations`) have RLS policies created but RLS not enabled — intentional for pre-auth loading
+- 3 functions (`user_has_role`, `user_is_coach_or_admin`, `user_is_admin`) have mutable search_path — low risk, to be tightened before production
+- 17 overly permissive RLS policies on program builder tables (drills, sessions, programs, etc.) using `USING (true)` — acceptable during active development, must tighten before production
+
+**Performance advisories (pre-existing, deferred):**
+- 14 unindexed foreign keys across program builder tables — to be indexed as data volume grows
+- 16 RLS policies re-evaluating `auth.<function>()` per row — should use `(select auth.<function>())` pattern before production
+- 12 duplicate permissive policies on same role/action — to be consolidated
+- 10 unused indexes — to be reviewed and cleaned up
+
+**Improvements made this check:**
+- Added this Audit Log section to `ENGINEERING_GUIDELINES.md`
+- Added Continuous Improvement section to `ENGINEERING_GUIDELINES.md`
+- Created `.agents/workflows/engineering-guidelines.md` pre-push workflow
+- Added Pre-Push Engineering Check section to `ENGINEERING_GUIDELINES.md`
