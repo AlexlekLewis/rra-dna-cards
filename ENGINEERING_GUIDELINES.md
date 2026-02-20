@@ -426,7 +426,77 @@ Rule:
 
 ---
 
+# COMMON MISTAKES — CHECK EVERY TIME BEFORE PUSHING
+
+These are patterns that have caused real incidents in this project. Every pre-push check must scan for all of them. Think of this as the match-day checklist — you don't skip the warm-up just because you've done it a hundred times.
+
+## Mistake 1: React Hooks Inside Conditionals
+**What happens:** Blank white page — React silently crashes, no build error.
+**How it sneaks in:** A quick fix adds `useState`, `useRef`, or `useEffect` inside an `if` block, a render helper function, or a loop.
+**How to catch it:** Before pushing, search every changed `.jsx` file for `useState`, `useRef`, `useEffect`, `useMemo`, `useCallback`. Every single call must be at the top level of the component function — never nested inside conditionals, loops, or sub-functions.
+**Incidents:** 2026-02-21 (TRAP 10), 2026-02-20 (SessionsTab hooks ordering)
+
+## Mistake 2: Stale Closures in Debounced/Delayed Callbacks
+**What happens:** Data silently gets overwritten with old values. No error visible.
+**How it sneaks in:** A `setTimeout`, `setInterval`, or debounced callback references a React state variable. By the time the callback fires, the state has moved on but the callback is frozen on the old value.
+**How to catch it:** Search changed files for `setTimeout` and `setInterval`. If the callback reads any React state (`players`, `pd`, `session`, etc.), it will be stale. Use a `useRef` (declared at top level) to hold the latest value, and read from the ref inside the callback.
+**Incidents:** 2026-02-21 (TRAP 8 — assessment auto-save)
+
+## Mistake 3: Data Shape Mismatches Between Writer and Reader
+**What happens:** Values appear as `0`, `null`, `undefined`, or `NaN` — silently wrong, not visibly broken.
+**How it sneaks in:** One function writes a JSONB object with one key structure (`{ steps: { 0: {...} } }`) and a different function reads it expecting a different structure (`step_0`, `step_1` at the root level).
+**How to catch it:** For every new data write, trace ALL readers. For every new data read, check the actual shape in the database. Add a comment in the reader documenting the expected shape.
+**Incidents:** 2026-02-21 (TRAP 9 — engagement key mismatch)
+
+## Mistake 4: Promise.all Destructuring Mismatch
+**What happens:** The wrong data gets assigned to the wrong variable. Can cause subtle rendering bugs or `undefined` errors.
+**How it sneaks in:** A new promise is added to a `Promise.all` array but the destructuring pattern isn't updated, or it's updated in the wrong order.
+**How to catch it:** For every `Promise.all` in changed files, count the promises and count the destructured variables. They must match, in order.
+**Incidents:** 2026-02-20 (AdminDashboard loadMemberEngagement Promise.all)
+
+## Mistake 5: Environment Variable Changes Without Server Restart
+**What happens:** App uses cached old values. Can cause auth failures, connection errors, or silent data misrouting.
+**How it sneaks in:** `.env` is updated but Vite's dev server picks up env vars only at startup, not via HMR.
+**How to catch it:** If you modified `.env`, `vite.config.js`, or `package.json`, restart the dev server before browser testing.
+**Incidents:** 2026-02-20 (Supabase client undefined values)
+
+## Mistake 6: Import/Export Name Mismatches After Refactoring
+**What happens:** Build may pass (if the import is tree-shaken or dynamic), but the feature silently fails at runtime.
+**How it sneaks in:** A function or component is renamed, moved to a new file, or changed from default to named export, but not all importers are updated.
+**How to catch it:** After renaming or moving any export, search the entire codebase (`grep -r "oldName"`) to find all import sites. Check both the import name and the file path.
+
+## Mistake 7: Inline Styles Changed Without Checking All Screen Sizes
+**What happens:** Desktop looks fine but mobile layout is broken, or vice versa.
+**How it sneaks in:** A style change uses `window.innerWidth` at import time (computed once), or hardcoded pixel values that don't scale.
+**How to catch it:** When changing any layout or style, check the app in the browser at both mobile (~375px) and desktop (~1440px) widths. Prefer CSS media queries over JS-based detection.
+
+## Mistake 8: RLS Policy Changes That Break the Auth Flow
+**What happens:** App loads to a blank screen or login loops forever — the pre-auth queries fail silently.
+**How it sneaks in:** RLS is tightened on a table that the app queries BEFORE the user is authenticated (e.g., `program_members` for login lookup, reference tables for engine data on mount).
+**How to catch it:** Before applying any RLS change, trace which role (`anon` vs `authenticated`) executes each query on that table. If any query runs pre-auth, the table needs an `anon` SELECT policy.
+**Incidents:** 2026-02-20 (security hardening locked out login)
+
+## Mistake 9: Building Features Without Checking Existing Patterns
+**What happens:** Duplicate code, inconsistent UX, or conflicting implementations.
+**How it sneaks in:** A new feature is built from scratch when an existing component, utility, or pattern already handles it.
+**How to catch it:** Before building anything, search the codebase for existing implementations of similar functionality. Check `shared/FormComponents.jsx`, `db/`, `engine/`, and `data/` for reusable pieces.
+
+## The 30-Second Pre-Push Gut Check
+Before committing, ask yourself these questions:
+1. Did I add or move any hooks? → Check they're all top-level
+2. Did I write any `setTimeout` or debounced code? → Check for stale closures
+3. Did I read/write any JSONB or structured data? → Check reader matches writer
+4. Did I change any `Promise.all`? → Count the destructured variables
+5. Did I touch `.env` or config? → Restart the dev server
+6. Did I rename or move any exports? → Search for all importers
+7. Did I change any styles? → Check mobile and desktop
+8. Did I change any RLS policies? → Trace which role runs each query
+9. Have I opened the app in the browser? → If not, STOP and do it now
+
+---
+
 # HARD STOPS — PAUSE AND FLAG IMMEDIATELY IF ASKED TO:
+
 
 - Delete or overwrite any Supabase table or rows without explicit confirmation
 - Skip or work around RLS policies for convenience
