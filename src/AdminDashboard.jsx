@@ -69,16 +69,49 @@ export default function AdminDashboard({
     const [analyticsDays, setAnalyticsDays] = useState(30);
     const [hoveredRow, setHoveredRow] = useState(null);
 
-    // Email template state
-    const [emailAcademyName, setEmailAcademyName] = useState(EMAIL_DEFAULTS.academyName);
-    const [emailSenderName, setEmailSenderName] = useState(EMAIL_DEFAULTS.senderName);
-    const [emailReplyTo, setEmailReplyTo] = useState(EMAIL_DEFAULTS.replyTo);
-    const [emailSubject, setEmailSubject] = useState(EMAIL_DEFAULTS.subject);
-    const [emailHeading, setEmailHeading] = useState(EMAIL_DEFAULTS.heading);
-    const [emailBody, setEmailBody] = useState(EMAIL_DEFAULTS.body);
-    const [emailFooter, setEmailFooter] = useState(EMAIL_DEFAULTS.footer);
-    const [emailLoginUrl, setEmailLoginUrl] = useState(EMAIL_DEFAULTS.loginUrl);
-    const [emailSignature, setEmailSignature] = useState(EMAIL_DEFAULTS.signature);
+    // Email template state — load from localStorage if previously saved
+    const _savedTmpl = (() => { try { return JSON.parse(localStorage.getItem('rra_email_template') || 'null'); } catch { return null; } })();
+    const [emailAcademyName, setEmailAcademyName] = useState(_savedTmpl?.academyName ?? EMAIL_DEFAULTS.academyName);
+    const [emailSenderName, setEmailSenderName] = useState(_savedTmpl?.senderName ?? EMAIL_DEFAULTS.senderName);
+    const [emailReplyTo, setEmailReplyTo] = useState(_savedTmpl?.replyTo ?? EMAIL_DEFAULTS.replyTo);
+    const [emailSubject, setEmailSubject] = useState(_savedTmpl?.subject ?? EMAIL_DEFAULTS.subject);
+    const [emailHeading, setEmailHeading] = useState(_savedTmpl?.heading ?? EMAIL_DEFAULTS.heading);
+    const [emailBody, setEmailBody] = useState(_savedTmpl?.body ?? EMAIL_DEFAULTS.body);
+    const [emailFooter, setEmailFooter] = useState(_savedTmpl?.footer ?? EMAIL_DEFAULTS.footer);
+    const [emailLoginUrl, setEmailLoginUrl] = useState(_savedTmpl?.loginUrl ?? EMAIL_DEFAULTS.loginUrl);
+    const [emailSignature, setEmailSignature] = useState(_savedTmpl?.signature ?? EMAIL_DEFAULTS.signature);
+
+    // Email template helper — get current config as an object
+    const getEmailTemplateConfig = () => ({
+        academyName: emailAcademyName,
+        senderName: emailSenderName,
+        replyTo: emailReplyTo,
+        subject: emailSubject,
+        heading: emailHeading,
+        body: emailBody,
+        footer: emailFooter,
+        loginUrl: emailLoginUrl,
+        signature: emailSignature,
+    });
+
+    const handleSaveEmailTemplate = () => {
+        localStorage.setItem('rra_email_template', JSON.stringify(getEmailTemplateConfig()));
+        showToast('✅ Email template saved', 'success');
+    };
+
+    const handleResetEmailTemplate = () => {
+        setEmailAcademyName(EMAIL_DEFAULTS.academyName);
+        setEmailSenderName(EMAIL_DEFAULTS.senderName);
+        setEmailReplyTo(EMAIL_DEFAULTS.replyTo);
+        setEmailSubject(EMAIL_DEFAULTS.subject);
+        setEmailHeading(EMAIL_DEFAULTS.heading);
+        setEmailBody(EMAIL_DEFAULTS.body);
+        setEmailFooter(EMAIL_DEFAULTS.footer);
+        setEmailLoginUrl(EMAIL_DEFAULTS.loginUrl);
+        setEmailSignature(EMAIL_DEFAULTS.signature);
+        localStorage.removeItem('rra_email_template');
+        showToast('Template reset to defaults', 'success');
+    };
     const [hoveredTab, setHoveredTab] = useState(null);
     const [tipOpen, setTipOpen] = useState(null);
     const styleRef = useRef(null);
@@ -855,7 +888,7 @@ export default function AdminDashboard({
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${token}`,
             },
-            body: JSON.stringify({ members: membersPayload }),
+            body: JSON.stringify({ members: membersPayload, emailTemplate: getEmailTemplateConfig() }),
         });
         if (!res.ok) {
             const errBody = await res.text();
@@ -1262,117 +1295,117 @@ export default function AdminDashboard({
 
 
 
-// ═══════════════════════════════════════════════
-//  RENDER: ANALYTICS TAB
-// ═══════════════════════════════════════════════
-const renderAnalytics = () => {
-    // Group events by type
-    const typeCounts = {};
-    const userActivity = {};
-    const dailyLogins = {};
+    // ═══════════════════════════════════════════════
+    //  RENDER: ANALYTICS TAB
+    // ═══════════════════════════════════════════════
+    const renderAnalytics = () => {
+        // Group events by type
+        const typeCounts = {};
+        const userActivity = {};
+        const dailyLogins = {};
 
-    analyticsEvents.forEach(ev => {
-        typeCounts[ev.event_type] = (typeCounts[ev.event_type] || 0) + 1;
+        analyticsEvents.forEach(ev => {
+            typeCounts[ev.event_type] = (typeCounts[ev.event_type] || 0) + 1;
 
-        if (!userActivity[ev.user_id]) userActivity[ev.user_id] = { count: 0, lastSeen: ev.created_at, events: [] };
-        userActivity[ev.user_id].count++;
-        userActivity[ev.user_id].events.push(ev.event_type);
-        if (ev.created_at > userActivity[ev.user_id].lastSeen) userActivity[ev.user_id].lastSeen = ev.created_at;
+            if (!userActivity[ev.user_id]) userActivity[ev.user_id] = { count: 0, lastSeen: ev.created_at, events: [] };
+            userActivity[ev.user_id].count++;
+            userActivity[ev.user_id].events.push(ev.event_type);
+            if (ev.created_at > userActivity[ev.user_id].lastSeen) userActivity[ev.user_id].lastSeen = ev.created_at;
 
-        if (ev.event_type === "login") {
-            const day = ev.created_at.slice(0, 10);
-            dailyLogins[day] = (dailyLogins[day] || 0) + 1;
-        }
-    });
+            if (ev.event_type === "login") {
+                const day = ev.created_at.slice(0, 10);
+                dailyLogins[day] = (dailyLogins[day] || 0) + 1;
+            }
+        });
 
-    const sortedTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
-    const maxCount = sortedTypes.length > 0 ? sortedTypes[0][1] : 1;
+        const sortedTypes = Object.entries(typeCounts).sort((a, b) => b[1] - a[1]);
+        const maxCount = sortedTypes.length > 0 ? sortedTypes[0][1] : 1;
 
-    // User engagement levels
-    const now = Date.now();
-    const engagementList = Object.entries(userActivity).map(([uid, data]) => {
-        const daysSince = Math.floor((now - new Date(data.lastSeen).getTime()) / 86400000);
-        const level = daysSince <= 7 ? "active" : daysSince <= 30 ? "occasional" : "inactive";
-        const profile = userProfiles.find(p => p.id === uid) || members.find(m => m.auth_user_id === uid);
-        return { uid, ...data, daysSince, level, name: profile?.full_name || profile?.display_name || profile?.email || uid.slice(0, 8) };
-    }).sort((a, b) => b.count - a.count);
+        // User engagement levels
+        const now = Date.now();
+        const engagementList = Object.entries(userActivity).map(([uid, data]) => {
+            const daysSince = Math.floor((now - new Date(data.lastSeen).getTime()) / 86400000);
+            const level = daysSince <= 7 ? "active" : daysSince <= 30 ? "occasional" : "inactive";
+            const profile = userProfiles.find(p => p.id === uid) || members.find(m => m.auth_user_id === uid);
+            return { uid, ...data, daysSince, level, name: profile?.full_name || profile?.display_name || profile?.email || uid.slice(0, 8) };
+        }).sort((a, b) => b.count - a.count);
 
-    return (
-        <div>
-            {/* Period selector */}
-            <div style={S.card}>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <div style={S.sectionTitle}>📊 Analytics <InfoTip id="analytics" text="Track how people use the app. See which features get used most, who's active, and when people log in. Useful for understanding engagement patterns." /></div>
-                    <select value={analyticsDays} onChange={e => setAnalyticsDays(Number(e.target.value))} style={{ ...S.input, width: "auto" }}>
-                        <option value={7}>Last 7 days</option>
-                        <option value={14}>Last 14 days</option>
-                        <option value={30}>Last 30 days</option>
-                        <option value={90}>Last 90 days</option>
-                    </select>
+        return (
+            <div>
+                {/* Period selector */}
+                <div style={S.card}>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                        <div style={S.sectionTitle}>📊 Analytics <InfoTip id="analytics" text="Track how people use the app. See which features get used most, who's active, and when people log in. Useful for understanding engagement patterns." /></div>
+                        <select value={analyticsDays} onChange={e => setAnalyticsDays(Number(e.target.value))} style={{ ...S.input, width: "auto" }}>
+                            <option value={7}>Last 7 days</option>
+                            <option value={14}>Last 14 days</option>
+                            <option value={30}>Last 30 days</option>
+                            <option value={90}>Last 90 days</option>
+                        </select>
+                    </div>
+                    <div style={S.subText}>{analyticsEvents.length} events tracked in this period</div>
                 </div>
-                <div style={S.subText}>{analyticsEvents.length} events tracked in this period</div>
-            </div>
 
-            {/* Feature Usage */}
-            <div style={S.card}>
-                <div style={S.sectionTitle}>Feature Usage <InfoTip id="featureusage" text="Which features get used the most? Each bar shows the relative frequency of that action type across all users in the selected period." /></div>
-                <div style={S.subText}>Which features get used the most?</div>
-                <div style={{ marginTop: 10 }}>
-                    {sortedTypes.map(([type, count]) => (
-                        <div key={type} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                            <div style={{ width: 120, fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.6)", textTransform: "uppercase" }}>{type.replace(/_/g, " ")}</div>
-                            <div style={{ flex: 1, height: 8, borderRadius: 4, background: "rgba(255,255,255,0.04)", overflow: "hidden" }}>
-                                <div style={{ height: "100%", borderRadius: 4, background: `linear-gradient(90deg, ${B.bl}, ${B.pk})`, width: `${(count / maxCount) * 100}%`, transition: "width 0.4s", animation: "adminBarFill 0.6s ease-out" }} />
+                {/* Feature Usage */}
+                <div style={S.card}>
+                    <div style={S.sectionTitle}>Feature Usage <InfoTip id="featureusage" text="Which features get used the most? Each bar shows the relative frequency of that action type across all users in the selected period." /></div>
+                    <div style={S.subText}>Which features get used the most?</div>
+                    <div style={{ marginTop: 10 }}>
+                        {sortedTypes.map(([type, count]) => (
+                            <div key={type} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                                <div style={{ width: 120, fontSize: 10, fontWeight: 600, color: "rgba(255,255,255,0.6)", textTransform: "uppercase" }}>{type.replace(/_/g, " ")}</div>
+                                <div style={{ flex: 1, height: 8, borderRadius: 4, background: "rgba(255,255,255,0.04)", overflow: "hidden" }}>
+                                    <div style={{ height: "100%", borderRadius: 4, background: `linear-gradient(90deg, ${B.bl}, ${B.pk})`, width: `${(count / maxCount) * 100}%`, transition: "width 0.4s", animation: "adminBarFill 0.6s ease-out" }} />
+                                </div>
+                                <div style={{ width: 40, textAlign: "right", fontSize: 11, fontWeight: 700, color: "#e4e4e7" }}>{count}</div>
                             </div>
-                            <div style={{ width: 40, textAlign: "right", fontSize: 11, fontWeight: 700, color: "#e4e4e7" }}>{count}</div>
-                        </div>
-                    ))}
-                    {sortedTypes.length === 0 && <div style={S.subText}>No events recorded yet. Activity will appear here as users interact with the app.</div>}
+                        ))}
+                        {sortedTypes.length === 0 && <div style={S.subText}>No events recorded yet. Activity will appear here as users interact with the app.</div>}
+                    </div>
                 </div>
-            </div>
 
-            {/* User Engagement */}
-            <div style={S.card}>
-                <div style={S.sectionTitle}>User Engagement <InfoTip id="engagement" text="Shows how recently each user has been active. Green = used the app in the last 7 days, amber = 8-30 days, red = more than 30 days since last activity." /></div>
-                <div style={S.subText}>🟢 Active (last 7 days) • 🟡 Occasional (8-30 days) • 🔴 Inactive (30+ days)</div>
-                <div style={{ marginTop: 10 }}>
-                    {engagementList.map(u => (
-                        <div key={u.uid} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
-                            <span style={{ fontSize: 12 }}>{u.level === "active" ? "🟢" : u.level === "occasional" ? "🟡" : "🔴"}</span>
-                            <div style={{ flex: 1 }}>
-                                <div style={{ fontSize: 11, fontWeight: 600, color: "#e4e4e7" }}>{u.name}</div>
-                                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)" }}>{u.count} actions • Last seen {u.daysSince === 0 ? "today" : `${u.daysSince}d ago`}</div>
+                {/* User Engagement */}
+                <div style={S.card}>
+                    <div style={S.sectionTitle}>User Engagement <InfoTip id="engagement" text="Shows how recently each user has been active. Green = used the app in the last 7 days, amber = 8-30 days, red = more than 30 days since last activity." /></div>
+                    <div style={S.subText}>🟢 Active (last 7 days) • 🟡 Occasional (8-30 days) • 🔴 Inactive (30+ days)</div>
+                    <div style={{ marginTop: 10 }}>
+                        {engagementList.map(u => (
+                            <div key={u.uid} style={{ display: "flex", alignItems: "center", gap: 8, padding: "4px 0", borderBottom: "1px solid rgba(255,255,255,0.04)" }}>
+                                <span style={{ fontSize: 12 }}>{u.level === "active" ? "🟢" : u.level === "occasional" ? "🟡" : "🔴"}</span>
+                                <div style={{ flex: 1 }}>
+                                    <div style={{ fontSize: 11, fontWeight: 600, color: "#e4e4e7" }}>{u.name}</div>
+                                    <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)" }}>{u.count} actions • Last seen {u.daysSince === 0 ? "today" : `${u.daysSince}d ago`}</div>
+                                </div>
                             </div>
-                        </div>
-                    ))}
-                    {engagementList.length === 0 && <div style={S.subText}>No user activity recorded yet.</div>}
+                        ))}
+                        {engagementList.length === 0 && <div style={S.subText}>No user activity recorded yet.</div>}
+                    </div>
+                </div>
+
+                {/* Login Timeline */}
+                <div style={S.card}>
+                    <div style={S.sectionTitle}>Login Timeline <InfoTip id="logins" text="A visual chart of daily login counts over the last 14 days. Taller bars = more logins that day. Useful for spotting engagement patterns and drop-offs." /></div>
+                    <div style={{ display: "flex", gap: 2, alignItems: "flex-end", height: 60, marginTop: 10 }}>
+                        {Object.entries(dailyLogins).sort().slice(-14).map(([day, count]) => (
+                            <div key={day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                                <div style={{ width: "100%", background: `linear-gradient(180deg, ${B.bl}, ${B.pk})`, borderRadius: 3, height: Math.max(4, (count / 10) * 50) }} />
+                                <div style={{ fontSize: 7, color: "rgba(255,255,255,0.2)", marginTop: 2 }}>{day.slice(5)}</div>
+                            </div>
+                        ))}
+                    </div>
+                    {Object.keys(dailyLogins).length === 0 && <div style={S.subText}>No login events recorded yet.</div>}
                 </div>
             </div>
+        );
+    };
 
-            {/* Login Timeline */}
-            <div style={S.card}>
-                <div style={S.sectionTitle}>Login Timeline <InfoTip id="logins" text="A visual chart of daily login counts over the last 14 days. Taller bars = more logins that day. Useful for spotting engagement patterns and drop-offs." /></div>
-                <div style={{ display: "flex", gap: 2, alignItems: "flex-end", height: 60, marginTop: 10 }}>
-                    {Object.entries(dailyLogins).sort().slice(-14).map(([day, count]) => (
-                        <div key={day} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
-                            <div style={{ width: "100%", background: `linear-gradient(180deg, ${B.bl}, ${B.pk})`, borderRadius: 3, height: Math.max(4, (count / 10) * 50) }} />
-                            <div style={{ fontSize: 7, color: "rgba(255,255,255,0.2)", marginTop: 2 }}>{day.slice(5)}</div>
-                        </div>
-                    ))}
-                </div>
-                {Object.keys(dailyLogins).length === 0 && <div style={S.subText}>No login events recorded yet.</div>}
-            </div>
-        </div>
-    );
-};
+    // ═══════════════════════════════════════════════
+    //  RENDER: EMAIL TEMPLATE TAB
+    // ═══════════════════════════════════════════════
+    const renderEmailTemplate = () => {
+        const resolvedSubject = emailSubject.replace("{{academyName}}", emailAcademyName);
 
-// ═══════════════════════════════════════════════
-//  RENDER: EMAIL TEMPLATE TAB
-// ═══════════════════════════════════════════════
-const renderEmailTemplate = () => {
-    const resolvedSubject = emailSubject.replace("{{academyName}}", emailAcademyName);
-
-    const emailHtml = `
+        const emailHtml = `
             <div style="max-width:600px;margin:0 auto;font-family:'Segoe UI',Helvetica,Arial,sans-serif;background:#0f1117;color:#e4e4e7;border-radius:12px;overflow:hidden;border:1px solid rgba(255,255,255,0.08);">
                 <!-- Header -->
                 <div style="background:linear-gradient(135deg,#1a1b2e,#0d1b3e);padding:32px 40px 24px;text-align:center;border-bottom:3px solid #e91e63;">
@@ -1383,7 +1416,7 @@ const renderEmailTemplate = () => {
                 <!-- Body -->
                 <div style="padding:32px 40px;">
                     <p style="font-size:14px;line-height:1.7;color:rgba(255,255,255,0.75);margin:0 0 24px;">
-                        Hi <strong style="color:#ffffff;">{{playerName}}</strong>,
+                        Hi <strong style="color:#ffffff;">${"{{playerName}}"}</strong>,
                     </p>
                     <p style="font-size:14px;line-height:1.7;color:rgba(255,255,255,0.75);margin:0 0 28px;">
                         ${emailBody}
@@ -1423,211 +1456,217 @@ const renderEmailTemplate = () => {
             </div>
         `;
 
-    return (
-        <div>
-            {/* Config Panel */}
-            <div style={S.card}>
-                <div style={S.sectionTitle}>✉️ Email Branding Configuration <InfoTip id="emailconfig" text="Configure how credential emails appear to players and parents. Changes here update the live preview below and will be used when sending credentials." /></div>
-                <div style={S.subText}>These settings control the branding of all outgoing credential emails.</div>
+        return (
+            <div>
+                {/* Config Panel */}
+                <div style={S.card}>
+                    <div style={S.sectionTitle}>✉️ Email Branding Configuration <InfoTip id="emailconfig" text="Configure how credential emails appear to players and parents. Changes here update the live preview below and will be used when sending credentials." /></div>
+                    <div style={S.subText}>These settings control the branding of all outgoing credential emails.</div>
 
-                <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                    {/* Academy Name */}
-                    <div>
-                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Academy Name</label>
+                    <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                        {/* Academy Name */}
+                        <div>
+                            <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Academy Name</label>
+                            <input
+                                value={emailAcademyName}
+                                onChange={e => setEmailAcademyName(e.target.value)}
+                                style={S.input}
+                            />
+                        </div>
+                        {/* Sender Name */}
+                        <div>
+                            <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Sender Name</label>
+                            <input
+                                value={emailSenderName}
+                                onChange={e => setEmailSenderName(e.target.value)}
+                                style={S.input}
+                            />
+                        </div>
+                        {/* Reply-To */}
+                        <div>
+                            <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Reply-To Address</label>
+                            <input
+                                value={emailReplyTo}
+                                onChange={e => setEmailReplyTo(e.target.value)}
+                                style={S.input}
+                            />
+                        </div>
+                        {/* Subject */}
+                        <div>
+                            <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Subject Line</label>
+                            <input
+                                value={emailSubject}
+                                onChange={e => setEmailSubject(e.target.value)}
+                                style={S.input}
+                            />
+                        </div>
+                        {/* Login URL */}
+                        <div style={{ gridColumn: "1 / -1" }}>
+                            <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Login URL</label>
+                            <input
+                                value={emailLoginUrl}
+                                onChange={e => setEmailLoginUrl(e.target.value)}
+                                style={S.input}
+                            />
+                        </div>
+                    </div>
+
+                    {/* Heading */}
+                    <div style={{ marginTop: 12 }}>
+                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Email Heading</label>
                         <input
-                            value={emailAcademyName}
-                            onChange={e => setEmailAcademyName(e.target.value)}
+                            value={emailHeading}
+                            onChange={e => setEmailHeading(e.target.value)}
                             style={S.input}
                         />
                     </div>
-                    {/* Sender Name */}
-                    <div>
-                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Sender Name</label>
-                        <input
-                            value={emailSenderName}
-                            onChange={e => setEmailSenderName(e.target.value)}
-                            style={S.input}
+
+                    {/* Body */}
+                    <div style={{ marginTop: 12 }}>
+                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Email Body</label>
+                        <textarea
+                            value={emailBody}
+                            onChange={e => setEmailBody(e.target.value)}
+                            rows={3}
+                            style={{ ...S.input, resize: "vertical", lineHeight: 1.6 }}
                         />
                     </div>
-                    {/* Reply-To */}
-                    <div>
-                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Reply-To Address</label>
-                        <input
-                            value={emailReplyTo}
-                            onChange={e => setEmailReplyTo(e.target.value)}
-                            style={S.input}
+
+                    {/* Footer */}
+                    <div style={{ marginTop: 12 }}>
+                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Footer Text</label>
+                        <textarea
+                            value={emailFooter}
+                            onChange={e => setEmailFooter(e.target.value)}
+                            rows={2}
+                            style={{ ...S.input, resize: "vertical", lineHeight: 1.6 }}
                         />
                     </div>
-                    {/* Subject */}
-                    <div>
-                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Subject Line</label>
-                        <input
-                            value={emailSubject}
-                            onChange={e => setEmailSubject(e.target.value)}
-                            style={S.input}
+
+                    {/* Email Signature */}
+                    <div style={{ marginTop: 16, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 16 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                            <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)" }}>✍️ Email Signature (HTML)</label>
+                            {emailSignature && (
+                                <button
+                                    onClick={() => setEmailSignature("")}
+                                    style={{ ...S.btn("#ef4444"), padding: "3px 10px", fontSize: 9 }}
+                                >Clear Signature</button>
+                            )}
+                        </div>
+                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 8, lineHeight: 1.5 }}>
+                            Paste your Outlook signature HTML below. To get it: Open Outlook → Settings → Signatures → Copy your signature → Paste here. It will render in the email footer.
+                        </div>
+                        <textarea
+                            value={emailSignature}
+                            onChange={e => setEmailSignature(e.target.value)}
+                            placeholder='Paste your Outlook signature HTML here...'
+                            rows={5}
+                            style={{ ...S.input, resize: "vertical", lineHeight: 1.5, fontFamily: "monospace", fontSize: 10 }}
                         />
-                    </div>
-                    {/* Login URL */}
-                    <div style={{ gridColumn: "1 / -1" }}>
-                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Login URL</label>
-                        <input
-                            value={emailLoginUrl}
-                            onChange={e => setEmailLoginUrl(e.target.value)}
-                            style={S.input}
-                        />
-                    </div>
-                </div>
-
-                {/* Heading */}
-                <div style={{ marginTop: 12 }}>
-                    <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Email Heading</label>
-                    <input
-                        value={emailHeading}
-                        onChange={e => setEmailHeading(e.target.value)}
-                        style={S.input}
-                    />
-                </div>
-
-                {/* Body */}
-                <div style={{ marginTop: 12 }}>
-                    <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Email Body</label>
-                    <textarea
-                        value={emailBody}
-                        onChange={e => setEmailBody(e.target.value)}
-                        rows={3}
-                        style={{ ...S.input, resize: "vertical", lineHeight: 1.6 }}
-                    />
-                </div>
-
-                {/* Footer */}
-                <div style={{ marginTop: 12 }}>
-                    <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", display: "block", marginBottom: 4 }}>Footer Text</label>
-                    <textarea
-                        value={emailFooter}
-                        onChange={e => setEmailFooter(e.target.value)}
-                        rows={2}
-                        style={{ ...S.input, resize: "vertical", lineHeight: 1.6 }}
-                    />
-                </div>
-
-                {/* Email Signature */}
-                <div style={{ marginTop: 16, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 16 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                        <label style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)" }}>✍️ Email Signature (HTML)</label>
                         {emailSignature && (
-                            <button
-                                onClick={() => setEmailSignature("")}
-                                style={{ ...S.btn("#ef4444"), padding: "3px 10px", fontSize: 9 }}
-                            >Clear Signature</button>
+                            <div style={{ marginTop: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: 12, background: "rgba(255,255,255,0.02)" }}>
+                                <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.35)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>SIGNATURE PREVIEW</div>
+                                <div dangerouslySetInnerHTML={{ __html: emailSignature }} />
+                            </div>
                         )}
                     </div>
-                    <div style={{ fontSize: 10, color: "rgba(255,255,255,0.3)", marginBottom: 8, lineHeight: 1.5 }}>
-                        Paste your Outlook signature HTML below. To get it: Open Outlook → Settings → Signatures → Copy your signature → Paste here. It will render in the email footer.
+
+                    {/* Save / Reset buttons */}
+                    <div style={{ marginTop: 20, borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 16, display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                        <button onClick={handleResetEmailTemplate} style={{ ...S.btn("rgba(255,255,255,0.08)"), color: "rgba(255,255,255,0.5)" }}>Reset to Defaults</button>
+                        <button onClick={handleSaveEmailTemplate} style={S.btn("#22c55e")}>💾 Save Template</button>
                     </div>
-                    <textarea
-                        value={emailSignature}
-                        onChange={e => setEmailSignature(e.target.value)}
-                        placeholder='Paste your Outlook signature HTML here...'
-                        rows={5}
-                        style={{ ...S.input, resize: "vertical", lineHeight: 1.5, fontFamily: "monospace", fontSize: 10 }}
-                    />
-                    {emailSignature && (
-                        <div style={{ marginTop: 10, border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, padding: 12, background: "rgba(255,255,255,0.02)" }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.35)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>SIGNATURE PREVIEW</div>
-                            <div dangerouslySetInnerHTML={{ __html: emailSignature }} />
+                </div>
+
+                {/* Envelope Info */}
+                <div style={S.card}>
+                    <div style={S.sectionTitle}>📬 Envelope Details</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 8 }}>
+                        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 14px" }}>
+                            <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>FROM</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#e4e4e7" }}>{emailSenderName}</div>
+                            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>noreply@rramelbourne.com</div>
                         </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Envelope Info */}
-            <div style={S.card}>
-                <div style={S.sectionTitle}>📬 Envelope Details</div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginTop: 8 }}>
-                    <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 14px" }}>
-                        <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>FROM</div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e4e4e7" }}>{emailSenderName}</div>
-                        <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)" }}>noreply@rramelbourne.com</div>
-                    </div>
-                    <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 14px" }}>
-                        <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>REPLY-TO</div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: B.pk }}>{emailReplyTo}</div>
-                    </div>
-                    <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 14px" }}>
-                        <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>SUBJECT</div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: "#e4e4e7" }}>{resolvedSubject}</div>
+                        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 14px" }}>
+                            <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>REPLY-TO</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: B.pk }}>{emailReplyTo}</div>
+                        </div>
+                        <div style={{ background: "rgba(255,255,255,0.03)", borderRadius: 8, padding: "10px 14px" }}>
+                            <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.3)", letterSpacing: 1, textTransform: "uppercase", marginBottom: 4 }}>SUBJECT</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: "#e4e4e7" }}>{resolvedSubject}</div>
+                        </div>
                     </div>
                 </div>
-            </div>
 
-            {/* Live Preview */}
-            <div style={S.card}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-                    <div style={S.sectionTitle}>👁️ Live Email Preview</div>
-                    <div style={{ display: "flex", gap: 6 }}>
-                        <span style={{ ...S.badge("#22c55e"), fontSize: 9 }}>Sample Data</span>
-                        <span style={{ ...S.badge(B.pk), fontSize: 9 }}>Player: Jai Smith</span>
+                {/* Live Preview */}
+                <div style={S.card}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+                        <div style={S.sectionTitle}>👁️ Live Email Preview</div>
+                        <div style={{ display: "flex", gap: 6 }}>
+                            <span style={{ ...S.badge("#22c55e"), fontSize: 9 }}>Sample Data</span>
+                            <span style={{ ...S.badge(B.pk), fontSize: 9 }}>Player: Jai Smith</span>
+                        </div>
                     </div>
-                </div>
-                <div style={S.subText}>This is exactly what the recipient will see in their inbox. The {{ playerName }} placeholder will be replaced with the actual player's name.</div>
+                    <div style={S.subText}>This is exactly what the recipient will see in their inbox. The {"{{ playerName }}"} placeholder will be replaced with the actual player's name.</div>
 
-                {/* Email frame */}
-                <div style={{
-                    marginTop: 16,
-                    border: "1px solid rgba(255,255,255,0.12)",
-                    borderRadius: 12,
-                    overflow: "hidden",
-                    boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
-                }}>
-                    {/* Fake email client header */}
+                    {/* Email frame */}
                     <div style={{
-                        background: "rgba(255,255,255,0.06)",
-                        padding: "10px 16px",
-                        borderBottom: "1px solid rgba(255,255,255,0.08)",
-                        display: "flex",
-                        gap: 8,
-                        alignItems: "center",
+                        marginTop: 16,
+                        border: "1px solid rgba(255,255,255,0.12)",
+                        borderRadius: 12,
+                        overflow: "hidden",
+                        boxShadow: "0 8px 32px rgba(0,0,0,0.3)",
                     }}>
-                        <div style={{ display: "flex", gap: 5 }}>
-                            <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#ef4444" }} />
-                            <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#f59e0b" }} />
-                            <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#22c55e" }} />
+                        {/* Fake email client header */}
+                        <div style={{
+                            background: "rgba(255,255,255,0.06)",
+                            padding: "10px 16px",
+                            borderBottom: "1px solid rgba(255,255,255,0.08)",
+                            display: "flex",
+                            gap: 8,
+                            alignItems: "center",
+                        }}>
+                            <div style={{ display: "flex", gap: 5 }}>
+                                <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#ef4444" }} />
+                                <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#f59e0b" }} />
+                                <div style={{ width: 10, height: 10, borderRadius: "50%", background: "#22c55e" }} />
+                            </div>
+                            <div style={{ flex: 1, fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: F, textAlign: "center" }}>
+                                ✉️ {resolvedSubject}
+                            </div>
                         </div>
-                        <div style={{ flex: 1, fontSize: 11, color: "rgba(255,255,255,0.5)", fontFamily: F, textAlign: "center" }}>
-                            ✉️ {resolvedSubject}
-                        </div>
+                        {/* Rendered email */}
+                        <div
+                            style={{ padding: 20, background: "#0a0b10" }}
+                            dangerouslySetInnerHTML={{ __html: emailHtml.replace(/\{\{playerName\}\}/g, "Jai Smith") }}
+                        />
                     </div>
-                    {/* Rendered email */}
-                    <div
-                        style={{ padding: 20, background: "#0a0b10" }}
-                        dangerouslySetInnerHTML={{ __html: emailHtml.replace(/\{\{playerName\}\}/g, "Jai Smith") }}
-                    />
                 </div>
             </div>
-        </div>
-    );
-};
+        );
+    };
 
-// ═══════════════════════════════════════════════
-//  MAIN RENDER
-// ═══════════════════════════════════════════════
-const content = {
-    visualizer: renderVisualizer,
-    controls: renderControls,
-    tiers: renderTiers,
-    players: renderPlayers,
-    rankings: renderRankings,
-    users: renderUsers,
-    email: renderEmailTemplate,
-    analytics: renderAnalytics,
-};
+    // ═══════════════════════════════════════════════
+    //  MAIN RENDER
+    // ═══════════════════════════════════════════════
+    const content = {
+        visualizer: renderVisualizer,
+        controls: renderControls,
+        tiers: renderTiers,
+        players: renderPlayers,
+        rankings: renderRankings,
+        users: renderUsers,
+        email: renderEmailTemplate,
+        analytics: renderAnalytics,
+    };
 
-return (
-    <div style={S.page} onClick={() => tipOpen && setTipOpen(null)}>
+    return (
+        <div style={S.page} onClick={() => tipOpen && setTipOpen(null)}>
 
 
-        {/* CSS Keyframe Animations */}
-        <style ref={styleRef}>{`
+            {/* CSS Keyframe Animations */}
+            <style ref={styleRef}>{`
                 @keyframes adminSlideUp {
                     from { opacity: 0; transform: translateY(12px); }
                     to { opacity: 1; transform: translateY(0); }
@@ -1653,93 +1692,93 @@ return (
                 }
             `}</style>
 
-        {/* Top Bar */}
-        <div style={S.topBar}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                {/* Logo with glow ring */}
-                <div style={{
-                    width: 42, height: 42, borderRadius: "50%",
-                    background: `${B.pk}18`,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    animation: "adminGlow 3s ease-in-out infinite",
-                    border: `2px solid ${B.pk}40`,
-                }}>
-                    <img src={LOGO} alt="" style={{ width: 28, height: 28, objectFit: "contain" }} />
-                </div>
-                <div>
+            {/* Top Bar */}
+            <div style={S.topBar}>
+                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    {/* Logo with glow ring */}
                     <div style={{
-                        fontSize: 15, fontWeight: 900, color: "#e4e4e7", fontFamily: F,
-                        letterSpacing: 0.5,
-                    }}>Admin Dashboard</div>
-                    <div style={{
-                        fontSize: 9, fontWeight: 600, color: B.pk, fontFamily: F,
-                        letterSpacing: 1.5, textTransform: "uppercase",
-                    }}>RRA DNA Engine Command Center</div>
-                </div>
-            </div>
-            <button
-                onClick={onSwitchToCoach || onBack}
-                style={{
-                    ...S.btn("rgba(255,255,255,0.08)"), color: "rgba(255,255,255,0.6)",
-                    border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(8px)",
-                    display: 'flex', alignItems: 'center', gap: 6,
-                }}
-            >🏏 Coach Portal</button>
-        </div>
-
-        {/* Tab Bar */}
-        <div style={S.tabBar}>
-            {TABS.map(t => (
-                <button
-                    key={t.id}
-                    onClick={() => setTab(t.id)}
-                    onMouseEnter={() => setHoveredTab(t.id)}
-                    onMouseLeave={() => setHoveredTab(null)}
-                    style={S.tab(tab === t.id, hoveredTab === t.id)}
-                >
-                    {t.icon} {t.label}
-                </button>
-            ))}
-        </div>
-
-        {/* Content */}
-        <div style={{ padding: "16px 16px 32px", maxWidth: 1100, margin: "0 auto" }}>
-            {loading ? (
-                <div style={{ textAlign: "center", padding: 60 }}>
-                    <div style={{
-                        width: 48, height: 48, borderRadius: "50%",
-                        border: `3px solid ${B.pk}30`, borderTop: `3px solid ${B.pk}`,
-                        margin: "0 auto 16px", animation: "adminPulse 1s ease-in-out infinite",
-                    }} />
-                    <div style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontFamily: F, animation: "adminLoadPulse 1.5s ease-in-out infinite" }}>
-                        Loading admin data...
+                        width: 42, height: 42, borderRadius: "50%",
+                        background: `${B.pk}18`,
+                        display: "flex", alignItems: "center", justifyContent: "center",
+                        animation: "adminGlow 3s ease-in-out infinite",
+                        border: `2px solid ${B.pk}40`,
+                    }}>
+                        <img src={LOGO} alt="" style={{ width: 28, height: 28, objectFit: "contain" }} />
+                    </div>
+                    <div>
+                        <div style={{
+                            fontSize: 15, fontWeight: 900, color: "#e4e4e7", fontFamily: F,
+                            letterSpacing: 0.5,
+                        }}>Admin Dashboard</div>
+                        <div style={{
+                            fontSize: 9, fontWeight: 600, color: B.pk, fontFamily: F,
+                            letterSpacing: 1.5, textTransform: "uppercase",
+                        }}>RRA DNA Engine Command Center</div>
                     </div>
                 </div>
-            ) : (
-                <>
-                    <StatRow />
-                    {content[tab]?.()}
-                </>
+                <button
+                    onClick={onSwitchToCoach || onBack}
+                    style={{
+                        ...S.btn("rgba(255,255,255,0.08)"), color: "rgba(255,255,255,0.6)",
+                        border: "1px solid rgba(255,255,255,0.1)", backdropFilter: "blur(8px)",
+                        display: 'flex', alignItems: 'center', gap: 6,
+                    }}
+                >🏏 Coach Portal</button>
+            </div>
+
+            {/* Tab Bar */}
+            <div style={S.tabBar}>
+                {TABS.map(t => (
+                    <button
+                        key={t.id}
+                        onClick={() => setTab(t.id)}
+                        onMouseEnter={() => setHoveredTab(t.id)}
+                        onMouseLeave={() => setHoveredTab(null)}
+                        style={S.tab(tab === t.id, hoveredTab === t.id)}
+                    >
+                        {t.icon} {t.label}
+                    </button>
+                ))}
+            </div>
+
+            {/* Content */}
+            <div style={{ padding: "16px 16px 32px", maxWidth: 1100, margin: "0 auto" }}>
+                {loading ? (
+                    <div style={{ textAlign: "center", padding: 60 }}>
+                        <div style={{
+                            width: 48, height: 48, borderRadius: "50%",
+                            border: `3px solid ${B.pk}30`, borderTop: `3px solid ${B.pk}`,
+                            margin: "0 auto 16px", animation: "adminPulse 1s ease-in-out infinite",
+                        }} />
+                        <div style={{ fontSize: 13, color: "rgba(255,255,255,0.4)", fontFamily: F, animation: "adminLoadPulse 1.5s ease-in-out infinite" }}>
+                            Loading admin data...
+                        </div>
+                    </div>
+                ) : (
+                    <>
+                        <StatRow />
+                        {content[tab]?.()}
+                    </>
+                )}
+            </div>
+
+            {/* Toast */}
+            {toast && <div style={S.toastStyle(toast.type)}>{toast.msg}</div>}
+
+            {/* Saving overlay */}
+            {saving && (
+                <div style={{
+                    position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
+                    background: "rgba(0,0,0,0.3)", backdropFilter: "blur(2px)",
+                    display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9998,
+                }}>
+                    <div style={{
+                        background: B.nvD, border: `1px solid ${B.pk}40`, borderRadius: 12,
+                        padding: "16px 32px", fontFamily: F, fontSize: 12, fontWeight: 700,
+                        color: B.pk, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
+                    }}>Saving...</div>
+                </div>
             )}
         </div>
-
-        {/* Toast */}
-        {toast && <div style={S.toastStyle(toast.type)}>{toast.msg}</div>}
-
-        {/* Saving overlay */}
-        {saving && (
-            <div style={{
-                position: "fixed", top: 0, left: 0, right: 0, bottom: 0,
-                background: "rgba(0,0,0,0.3)", backdropFilter: "blur(2px)",
-                display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9998,
-            }}>
-                <div style={{
-                    background: B.nvD, border: `1px solid ${B.pk}40`, borderRadius: 12,
-                    padding: "16px 32px", fontFamily: F, fontSize: 12, fontWeight: 700,
-                    color: B.pk, boxShadow: "0 8px 32px rgba(0,0,0,0.5)",
-                }}>Saving...</div>
-            </div>
-        )}
-    </div>
-);
+    );
 }
