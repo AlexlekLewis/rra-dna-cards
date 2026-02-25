@@ -13,24 +13,24 @@ export const ROLES = [
 // TRAP 1: Existing items MUST NOT be reordered or removed. New items appended only.
 
 export const BAT_ARCH = [
-    { id: "firestarter", nm: "THE FIRESTARTER", sub: "Lights up the Powerplay.", c: B.pk },
-    { id: "controller", nm: "THE CONTROLLER", sub: "Dictates tempo. Finds gaps.", c: B.bl },
-    { id: "closer", nm: "THE CLOSER", sub: "Gets the job done under pressure.", c: B.pk },
-    { id: "dual", nm: "THE DUAL THREAT", sub: "Dangerous with bat and ball.", c: B.bl },
+    { id: "firestarter", nm: "THE FIRESTARTER", sub: "You score fast from ball one. You back yourself to hit boundaries in the powerplay and put pressure on the bowlers early.", c: B.pk },
+    { id: "controller", nm: "THE CONTROLLER", sub: "You control the tempo of the innings. You find gaps, rotate strike, and build partnerships — then accelerate when the time is right.", c: B.bl },
+    { id: "closer", nm: "THE CLOSER", sub: "You're the person the team wants at the crease when the game is on the line. You stay calm under pressure and finish the job.", c: B.pk },
+    { id: "dual", nm: "THE DUAL THREAT", sub: "You make an impact with both bat and ball. You can change the game in either role and your team relies on your versatility.", c: B.bl },
     // ── Appended v2 ──
-    { id: "threesixty", nm: "THE 360°", sub: "Scores all around the ground. Impossible to set a field.", c: B.sky },
-    { id: "spindom", nm: "SPIN DOMINATOR", sub: "Reads and destroys spin. Controls the middle overs.", c: B.prp },
+    { id: "threesixty", nm: "THE 360°", sub: "You score all around the ground. Bowlers can't set a field to you because you can hit to every part of the boundary.", c: B.sky },
+    { id: "spindom", nm: "SPIN DOMINATOR", sub: "You read spin early and score freely. While others struggle against spinners, you dominate them and control the middle overs.", c: B.prp },
 ];
 
 export const BWL_ARCH = [
-    { id: "hunter", nm: "WICKET HUNTER", sub: "Hunts breakthroughs. Strike bowler.", c: B.pk },
-    { id: "weapon", nm: "THE WEAPON", sub: "Shuts you down AND gets you out.", c: B.bl },
-    { id: "squeeze", nm: "THE SQUEEZE", sub: "Suffocates scoring. Builds pressure.", c: B.bl },
-    { id: "developer", nm: "THE DEVELOPER", sub: "Building their game. Clear path.", c: B.g400 },
+    { id: "hunter", nm: "WICKET HUNTER", sub: "Your main job is to take wickets. You attack the stumps, find edges, and break partnerships. You're the strike bowler.", c: B.pk },
+    { id: "weapon", nm: "THE WEAPON", sub: "You do both — you take wickets AND you don't go for runs. You're the bowler the captain turns to in any situation.", c: B.bl },
+    { id: "squeeze", nm: "THE SQUEEZE", sub: "You stop the scoring. You bowl dots, build pressure, and force the batter into mistakes. Economy is your superpower.", c: B.bl },
+    { id: "developer", nm: "THE DEVELOPER", sub: "You're building your bowling game. You have clear areas to improve and you're working hard to get better every session.", c: B.g400 },
     // ── Appended v2 ──
-    { id: "death", nm: "DEATH SPECIALIST", sub: "Owns overs 17-20. Yorkers and variations.", c: B.pk },
-    { id: "express", nm: "EXPRESS PACE", sub: "Raw speed. Intimidation. Over 135km/h.", c: B.nv },
-    { id: "containing", nm: "CONTAINING SPINNER", sub: "Controls the tempo. Economy is the weapon.", c: B.sky },
+    { id: "death", nm: "DEATH SPECIALIST", sub: "You own the last 4 overs. You nail yorkers, mix up your pace, and stay calm when the batter is trying to hit you out of the ground.", c: B.pk },
+    { id: "express", nm: "EXPRESS PACE", sub: "You bowl fast — over 135 km/h. Your raw speed makes batters uncomfortable and you use it to create chances.", c: B.nv },
+    { id: "containing", nm: "CONTAINING SPINNER", sub: "You control the game with your accuracy. You don't give away easy runs and you use variations to keep batters guessing.", c: B.sky },
 ];
 
 // ═══ SKILL ITEMS (position-indexed — NEVER reorder) ═══

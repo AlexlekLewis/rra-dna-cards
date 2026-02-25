@@ -11,6 +11,7 @@ import {
 } from "./db/adminDb";
 import { supabase } from "./supabaseClient";
 import { trackEvent, EVT } from "./analytics/tracker";
+import SquadManager from "./admin/SquadManager";
 
 // ═══════════════════════════════════════════════
 // ADMIN DASHBOARD — 7-TAB COMMAND CENTER
@@ -21,7 +22,8 @@ const TABS = [
     { id: "controls", icon: "⚙️", label: "Engine Controls" },
     { id: "tiers", icon: "🏏", label: "Competition Tiers" },
     { id: "players", icon: "👥", label: "All Players" },
-    { id: "rankings", icon: "🏆", label: "Rankings & Squads" },
+    { id: "rankings", icon: "🏆", label: "Rankings" },
+    { id: "squads", icon: "🏟️", label: "Squad & Coach Manager" },
     { id: "users", icon: "📨", label: "User Management" },
     { id: "email", icon: "✉️", label: "Email Template" },
     { id: "analytics", icon: "📊", label: "Analytics" },
@@ -66,7 +68,6 @@ export default function AdminDashboard({
     const [rankSort, setRankSort] = useState("overall");
     const [rankSortDir, setRankSortDir] = useState("desc");
     const [previewPlayer, setPreviewPlayer] = useState(null);
-    const [newSquadName, setNewSquadName] = useState("");
     const [analyticsDays, setAnalyticsDays] = useState(30);
     const [hoveredRow, setHoveredRow] = useState(null);
 
@@ -394,34 +395,6 @@ export default function AdminDashboard({
             trackEvent(EVT.ENGINE_EDIT, { type: "tier", code });
         } catch (e) { showToast(e.message, "error"); }
         setSaving(false);
-    };
-
-    // ═══ HANDLER: SQUAD OPS ═══
-    const handleCreateSquad = async () => {
-        if (!newSquadName.trim()) return;
-        try {
-            await createSquadGroup(newSquadName.trim(), "", 12);
-            setNewSquadName("");
-            await refresh();
-            showToast("Squad created");
-        } catch (e) { showToast(e.message, "error"); }
-    };
-
-    const handleAllocate = async (squadId, playerId) => {
-        try {
-            await allocatePlayerToSquad(squadId, playerId, session?.user?.id, "");
-            await refresh();
-            showToast("Player assigned");
-            trackEvent(EVT.SQUAD_EDIT, { squadId, playerId, action: "allocate" });
-        } catch (e) { showToast(e.message, "error"); }
-    };
-
-    const handleUnallocate = async (playerId) => {
-        try {
-            await removePlayerFromSquad(playerId);
-            await refresh();
-            showToast("Player removed from squad");
-        } catch (e) { showToast(e.message, "error"); }
     };
 
     // ═══════════════════════════════════════════════
@@ -811,67 +784,6 @@ export default function AdminDashboard({
                             </div>
                         );
                     })}
-                </div>
-
-                {/* Squad Builder */}
-                <div style={S.card}>
-                    <div style={S.sectionTitle}>📋 Squad Builder <InfoTip id="squadbuilder" text="Create development squads and assign players based on their rankings. The right grouping accelerates player development — too strong or too weak slows progress." /></div>
-                    <div style={S.subText}>Create development squads and assign players from the ranked list above.</div>
-
-                    {/* Create new squad */}
-                    <div style={{ display: "flex", gap: 8, marginTop: 10, marginBottom: 12 }}>
-                        <input
-                            type="text"
-                            placeholder="New squad name..."
-                            value={newSquadName}
-                            onChange={e => setNewSquadName(e.target.value)}
-                            onKeyDown={e => e.key === "Enter" && handleCreateSquad()}
-                            style={{ ...S.input, flex: 1 }}
-                        />
-                        <button onClick={handleCreateSquad} style={S.btn("#3b82f6")}>+ Create</button>
-                    </div>
-
-                    {/* Squad lanes */}
-                    {squads.map(squad => {
-                        const squadPlayers = rankedPlayers.filter(p => allocMap[p.id] === squad.id);
-                        return (
-                            <div key={squad.id} style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 10, padding: 12, marginBottom: 8 }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                    <div style={{ fontSize: 12, fontWeight: 800, color: "#e4e4e7" }}>{squad.name}</div>
-                                    <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)" }}>{squadPlayers.length}/{squad.target_size || 12} players</div>
-                                </div>
-                                {/* Role composition */}
-                                {squadPlayers.length > 0 && (
-                                    <div style={{ display: "flex", gap: 4, flexWrap: "wrap", marginTop: 6 }}>
-                                        {squadPlayers.map(p => (
-                                            <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 4, background: "rgba(255,255,255,0.04)", borderRadius: 6, padding: "3px 8px" }}>
-                                                <span style={{ fontSize: 10, fontWeight: 600, color: "#e4e4e7" }}>{p.name}</span>
-                                                <span style={{ fontSize: 9, color: scoreColor(p.overallScore) }}>{p.overallScore}</span>
-                                                <button onClick={() => handleUnallocate(p.id)} style={{ background: "none", border: "none", color: "#ef4444", cursor: "pointer", fontSize: 10, padding: 0 }}>✕</button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                                {/* Add player dropdown */}
-                                {unallocated.length > 0 && (
-                                    <select
-                                        value=""
-                                        onChange={e => e.target.value && handleAllocate(squad.id, e.target.value)}
-                                        style={{ ...S.input, marginTop: 8, fontSize: 10 }}
-                                    >
-                                        <option value="">+ Add player to {squad.name}...</option>
-                                        {unallocated.map(p => (
-                                            <option key={p.id} value={p.id}>{p.name} — Overall {p.overallScore}</option>
-                                        ))}
-                                    </select>
-                                )}
-                            </div>
-                        );
-                    })}
-
-                    {squads.length === 0 && (
-                        <div style={{ ...S.subText, textAlign: "center", padding: 20 }}>No squads created yet. Create one above to start allocating players.</div>
-                    )}
                 </div>
             </div>
         );
@@ -1668,6 +1580,17 @@ export default function AdminDashboard({
         tiers: renderTiers,
         players: renderPlayers,
         rankings: renderRankings,
+        squads: () => (
+            <SquadManager
+                squads={squads}
+                allocations={allocations}
+                players={players}
+                members={members}
+                refresh={refresh}
+                showToast={showToast}
+                session={session}
+            />
+        ),
         users: renderUsers,
         email: renderEmailTemplate,
         analytics: renderAnalytics,

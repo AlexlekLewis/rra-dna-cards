@@ -63,7 +63,10 @@ export async function updateCompetitionTier(code, updates) {
 export async function loadSquadGroups() {
     const { data, error } = await supabase
         .from('squad_groups')
-        .select('*')
+        .select(`
+            *,
+            coach_squad_access ( id, coach_id, role )
+        `)
         .order('sort_order');
     if (error) throw error;
     return data;
@@ -115,6 +118,24 @@ export async function allocatePlayerToSquad(squadId, playerId, allocatedBy, note
 
 export async function removePlayerFromSquad(playerId) {
     const { error } = await supabase.from('squad_allocations').delete().eq('player_id', playerId);
+    if (error) throw error;
+}
+
+export async function assignCoachToSquad(squadId, coachId, role = 'squad_coach') {
+    const { data, error } = await supabase
+        .from('coach_squad_access')
+        .upsert({ squad_id: squadId, coach_id: coachId, role }, { onConflict: 'squad_id, coach_id' })
+        .select()
+        .single();
+    if (error) throw error;
+    return data;
+}
+
+export async function removeCoachFromSquad(squadId, coachId) {
+    const { error } = await supabase
+        .from('coach_squad_access')
+        .delete()
+        .match({ squad_id: squadId, coach_id: coachId });
     if (error) throw error;
 }
 

@@ -122,6 +122,32 @@ export async function savePlayerToDB(pd, authUserId) {
 }
 
 export async function saveAssessmentToDB(playerId, cd) {
+    // ── Snapshot existing assessment into history before overwriting ──
+    try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const { data: existing } = await supabase
+            .from('coach_assessments')
+            .select('*')
+            .eq('player_id', playerId)
+            .single();
+        if (existing) {
+            // Count existing history records to determine version number
+            const { count } = await supabase
+                .from('assessment_history')
+                .select('id', { count: 'exact', head: true })
+                .eq('player_id', playerId);
+            await supabase.from('assessment_history').insert({
+                player_id: playerId,
+                assessment_data: existing,
+                version: (count || 0) + 1,
+                created_by: session?.user?.id || null,
+            });
+        }
+    } catch (e) {
+        // History save failure should never block the actual assessment save
+        console.warn('Assessment history snapshot failed:', e.message);
+    }
+
     const phaseKeys = ['pb_pp', 'pw_pp', 'pb_mid', 'pw_mid', 'pb_death', 'pw_death'];
     const phase_ratings = Object.fromEntries(phaseKeys.filter(k => cd[k] != null).map(k => [k, cd[k]]));
     const tech_primary = Object.fromEntries(Object.entries(cd).filter(([k]) => k.startsWith('t1_')));

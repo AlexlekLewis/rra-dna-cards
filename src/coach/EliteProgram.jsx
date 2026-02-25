@@ -490,6 +490,8 @@ function SessionsTab({ program, sessions, setSessions, drills, zones, canEdit, u
     const [activities, setActivities] = useState([]);
     const [loadingActs, setLoadingActs] = useState(false);
     const [selectedAct, setSelectedAct] = useState(null);
+    const [editSessionModal, setEditSessionModal] = useState(false);
+    const [editSessionData, setEditSessionData] = useState({});
     const weeks = Array.from({ length: 12 }, (_, i) => i + 1);
 
     // ═══ DRAG STATE ═══
@@ -528,6 +530,19 @@ function SessionsTab({ program, sessions, setSessions, drills, zones, canEdit, u
             console.error('Load activities error:', e);
         }
         setLoadingActs(false);
+    };
+
+    const handleSaveSessionDetails = async () => {
+        if (!canEdit) return;
+        try {
+            const saved = await saveSession(editSessionData, userId);
+            setSessions(prev => prev.map(s => s.id === saved.id ? saved : s));
+            if (activeSession?.id === saved.id) setActiveSession(saved);
+            setEditSessionModal(false);
+        } catch (e) {
+            console.error('Save session details error:', e);
+            alert("Failed to save session details");
+        }
     };
 
     // ═══ DRAG EFFECT (must be before conditional returns) ═══
@@ -802,7 +817,29 @@ function SessionsTab({ program, sessions, setSessions, drills, zones, canEdit, u
                     ← Back
                 </button>
                 <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 800, color: B.nvD, fontFamily: F }}>{session.title}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: B.nvD, fontFamily: F }}>{session.title}</div>
+                        {canEdit && (
+                            <button
+                                onClick={() => {
+                                    setEditSessionData({
+                                        id: session.id,
+                                        title: session.title || '',
+                                        session_date: session.session_date || '',
+                                        total_duration_mins: session.total_duration_mins || 120,
+                                        objectives: session.objectives || '',
+                                        notes: session.notes || '',
+                                        coaching_points: session.coaching_points || '',
+                                        journal_questions: (session.journal_questions || []).join('\n')
+                                    });
+                                    setEditSessionModal(true);
+                                }}
+                                style={{ padding: "4px 8px", fontSize: 10, background: B.bl, color: B.w, border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 700, fontFamily: F }}
+                            >
+                                Edit Details
+                            </button>
+                        )}
+                    </div>
                     <div style={{ fontSize: 10, color: B.g400, fontFamily: F }}>
                         {session.session_date || 'Date TBD'} · {totalMins} min · <span style={{ color: phase?.color, fontWeight: 700 }}>{phase?.label}</span>
                     </div>
@@ -1105,11 +1142,86 @@ function SessionsTab({ program, sessions, setSessions, drills, zones, canEdit, u
                     {/* Session Notes */}
                     {session.notes && (
                         <div style={{ ...sCard, padding: 10, marginTop: 8 }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, color: B.g400, fontFamily: F, marginBottom: 2 }}>📝 SESSION NOTES</div>
+                            <div style={{ fontSize: 9, fontWeight: 700, color: B.g400, fontFamily: F, marginBottom: 2 }}>📝 SESSION LOGISTICS / NOTES</div>
                             <div style={{ fontSize: 10, color: B.g600, fontFamily: F, lineHeight: 1.4 }}>{session.notes}</div>
                         </div>
                     )}
+                    {session.coaching_points && (
+                        <div style={{ ...sCard, padding: 10, marginTop: 8 }}>
+                            <div style={{ fontSize: 9, fontWeight: 700, color: B.bl, fontFamily: F, marginBottom: 2 }}>💡 COACHING POINTS (Visible in Reflection)</div>
+                            <div style={{ fontSize: 10, color: B.g600, fontFamily: F, lineHeight: 1.4, whiteSpace: 'pre-wrap' }}>{session.coaching_points}</div>
+                        </div>
+                    )}
                 </>
+            )}
+
+            {/* EDIT SESSION MODAL */}
+            {editSessionModal && (
+                <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
+                    <div style={{ background: B.w, borderRadius: 16, width: '100%', maxWidth: 500, padding: 24, boxShadow: '0 20px 40px rgba(0,0,0,0.2)', maxHeight: '90vh', overflowY: 'auto' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+                            <h3 style={{ margin: 0, color: B.nvD, fontSize: 18, fontWeight: 800 }}>Edit Session Details</h3>
+                            <button onClick={() => setEditSessionModal(false)} style={{ background: 'none', border: 'none', color: B.g400, cursor: 'pointer', fontSize: 16 }}>✕</button>
+                        </div>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                            <div>
+                                <label style={{ fontSize: 10, fontWeight: 700, color: B.g400 }}>Title</label>
+                                <input value={editSessionData.title} onChange={e => setEditSessionData({ ...editSessionData, title: e.target.value })} style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${B.g200}`, fontFamily: F, boxSizing: 'border-box' }} />
+                            </div>
+                            <div style={{ display: 'flex', gap: 12 }}>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: 10, fontWeight: 700, color: B.g400 }}>Date</label>
+                                    <input type="date" value={editSessionData.session_date} onChange={e => setEditSessionData({ ...editSessionData, session_date: e.target.value })} style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${B.g200}`, fontFamily: F, boxSizing: 'border-box' }} />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                    <label style={{ fontSize: 10, fontWeight: 700, color: B.g400 }}>Total Mins</label>
+                                    <input type="number" value={editSessionData.total_duration_mins} onChange={e => setEditSessionData({ ...editSessionData, total_duration_mins: parseInt(e.target.value) || 0 })} style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${B.g200}`, fontFamily: F, boxSizing: 'border-box' }} />
+                                </div>
+                            </div>
+                            <div>
+                                <label style={{ fontSize: 10, fontWeight: 700, color: B.g400 }}>Objectives</label>
+                                <textarea value={editSessionData.objectives} onChange={e => setEditSessionData({ ...editSessionData, objectives: e.target.value })} rows={2} style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${B.g200}`, fontFamily: F, boxSizing: 'border-box', resize: "vertical" }} />
+                            </div>
+                            <div>
+                                <label style={{ fontSize: 10, fontWeight: 700, color: B.g400 }}>Notes / Logistics</label>
+                                <textarea value={editSessionData.notes} onChange={e => setEditSessionData({ ...editSessionData, notes: e.target.value })} rows={2} style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${B.g200}`, fontFamily: F, boxSizing: 'border-box', resize: "vertical" }} />
+                            </div>
+                            <div style={{ background: `${B.pk}10`, padding: 12, borderRadius: 8, border: `1px dashed ${B.pk}40` }}>
+                                <label style={{ fontSize: 10, fontWeight: 800, color: B.pk, display: "block", marginBottom: 4 }}>💡 Coaching Points (Visible in Reflection)</label>
+                                <textarea value={editSessionData.coaching_points} onChange={e => setEditSessionData({ ...editSessionData, coaching_points: e.target.value })} placeholder="Key takeaways for players..." rows={3} style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${B.pk}40`, fontFamily: F, boxSizing: 'border-box', resize: "vertical" }} />
+                            </div>
+                            <div style={{ background: `${B.nvD}10`, padding: 12, borderRadius: 8, border: `1px dashed ${B.nvD}40` }}>
+                                <label style={{ fontSize: 10, fontWeight: 800, color: B.nvD, display: "block", marginBottom: 4 }}>📋 Journal Questions (One per line)</label>
+                                <textarea
+                                    value={editSessionData.journal_questions}
+                                    onChange={e => setEditSessionData({ ...editSessionData, journal_questions: e.target.value })}
+                                    placeholder="What was the main challenge today?\nHow did you handle the new drill?"
+                                    rows={3}
+                                    style={{ width: '100%', padding: '8px 10px', borderRadius: 6, border: `1px solid ${B.nvD}40`, fontFamily: F, boxSizing: 'border-box', resize: "vertical" }}
+                                />
+                                <div style={{ fontSize: 9, color: B.g400, marginTop: 4 }}>These questions will be appended to the player's session reflection form.</div>
+                            </div>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+                            <button onClick={() => setEditSessionModal(false)} style={{ padding: '8px 16px', borderRadius: 6, border: `1px solid ${B.g200}`, background: 'none', color: B.g400, fontSize: 12, fontWeight: 600, fontFamily: F, cursor: 'pointer' }}>Cancel</button>
+                            <button onClick={async () => {
+                                const payload = { ...editSessionData };
+                                payload.journal_questions = payload.journal_questions.split('\n').map(q => q.trim()).filter(Boolean);
+                                try {
+                                    const saved = await saveSession(payload, userId);
+                                    setSessions(prev => prev.map(s => s.id === saved.id ? saved : s));
+                                    if (activeSession?.id === saved.id) setActiveSession(saved);
+                                    setEditSessionModal(false);
+                                } catch (e) {
+                                    console.error('Save session details error:', e);
+                                    alert("Failed to save session details");
+                                }
+                            }} style={{ padding: '8px 16px', borderRadius: 6, border: 'none', background: B.bl, color: B.w, fontSize: 12, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}>Save Changes</button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

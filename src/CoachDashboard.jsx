@@ -1,4 +1,7 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { supabase } from "./supabaseClient";
+import { loadAttendanceForPlayer, loadObservationsForPlayer } from './db/observationDb';
+import { loadJournalHistory } from './db/journalDb';
 
 // ═══ COACH DASHBOARD ═══
 // Props: { players, compTiers, dbWeights, engineConst, onBack, onSelectPlayer,
@@ -6,7 +9,7 @@ import { useState, useMemo } from "react";
 //          techItems, ROLES, B, F, LOGO, IQ_ITEMS, MN_ITEMS, PH_MAP, Ring, sGrad }
 
 export default function CoachDashboard({
-    players, compTiers, dbWeights, engineConst,
+    session, players, compTiers, dbWeights, engineConst,
     onBack, onSelectPlayer,
     calcPDI, calcCCM, calcCohortPercentile, calcAgeScore,
     getAge, getBracket, techItems,
@@ -16,6 +19,14 @@ export default function CoachDashboard({
     const [tab, setTab] = useState("overview");
     const [search, setSearch] = useState("");
     const [roleFilter, setRoleFilter] = useState(null);
+    const [squadFilter, setSquadFilter] = useState(false);
+    const [mySquadIds, setMySquadIds] = useState([]);
+
+    // Player-specific fetches
+    const [playerAtt, setPlayerAtt] = useState([]);
+    const [playerObs, setPlayerObs] = useState([]);
+    const [playerJournals, setPlayerJournals] = useState([]);
+    const [loadingTabData, setLoadingTabData] = useState(false);
     const [sideOpen, setSideOpen] = useState(false);
     const [compareA, setCompareA] = useState(null);
     const [compareB, setCompareB] = useState(null);
@@ -24,6 +35,61 @@ export default function CoachDashboard({
     const [tipOpen, setTipOpen] = useState(null);
 
     const _isDesktop = typeof window !== "undefined" && window.innerWidth >= 768;
+
+    useEffect(() => {
+        if (!session?.user?.id) return;
+        async function fetchCoachSquads() {
+            try {
+                const { data, error } = await supabase
+                    .from('coach_squad_access')
+                    .select('squad_groups(squad_allocations(player_id))')
+                    .eq('coach_id', session.user.id);
+                if (error) throw error;
+                const pIds = new Set();
+                data.forEach(a => {
+                    a.squad_groups?.squad_allocations?.forEach(alloc => pIds.add(alloc.player_id));
+                });
+                const ids = Array.from(pIds);
+                setMySquadIds(ids);
+                if (ids.length > 0) setSquadFilter(true);
+            } catch (e) { console.error("Error fetching squads:", e); }
+        }
+        fetchCoachSquads();
+    }, [session]);
+
+    // Load data when a specific tab is opened for a user
+    useEffect(() => {
+        if (!selId) return;
+        async function fetchTabData() {
+            setLoadingTabData(true);
+            try {
+                if (tab === "attendance" && playerAtt.length === 0) {
+                    const att = await loadAttendanceForPlayer(selId);
+                    setPlayerAtt(att);
+                }
+                if (tab === "observations" && playerObs.length === 0) {
+                    const obs = await loadObservationsForPlayer(selId);
+                    setPlayerObs(obs);
+                }
+                if (tab === "journals" && playerJournals.length === 0) {
+                    const jrn = await loadJournalHistory(selId);
+                    setPlayerJournals(jrn);
+                }
+            } catch (e) {
+                console.error("Error fetching tab data:", e);
+            } finally {
+                setLoadingTabData(false);
+            }
+        }
+        fetchTabData();
+    }, [selId, tab]);
+
+    // Clear player-specific data when selId changes
+    useEffect(() => {
+        setPlayerAtt([]);
+        setPlayerObs([]);
+        setPlayerJournals([]);
+    }, [selId]);
 
     // ═══ EXPLAINER TOOLTIPS ═══
     const TIPS = {
@@ -146,10 +212,13 @@ export default function CoachDashboard({
     // ═══ FILTERED & SORTED LIST ═══
     const filteredPlayers = useMemo(() => {
         let list = playerData;
+        if (squadFilter && mySquadIds.length > 0) {
+            list = list.filter(p => mySquadIds.includes(p.id));
+        }
         if (search) list = list.filter(p => p.name.toLowerCase().includes(search.toLowerCase()));
         if (roleFilter) list = list.filter(p => p.role === roleFilter);
         return list;
-    }, [playerData, search, roleFilter]);
+    }, [playerData, search, roleFilter, squadFilter, mySquadIds]);
 
     const sel = selId ? playerData.find(p => p.id === selId) : null;
 
@@ -211,7 +280,13 @@ export default function CoachDashboard({
                     />
                 </div>
                 {/* Role filters */}
-                <div style={{ display: "flex", gap: 4, marginTop: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 4, marginTop: 8, flexWrap: "wrap", alignItems: 'center' }}>
+                    {mySquadIds.length > 0 && (
+                        <button onClick={() => setSquadFilter(!squadFilter)}
+                            style={pill(squadFilter, B.grn)}>
+                            My Squad
+                        </button>
+                    )}
                     <button onClick={() => setRoleFilter(null)} style={pill(!roleFilter, B.w)}>All</button>
                     {ROLES.map(r => (
                         <button key={r.id} onClick={() => setRoleFilter(roleFilter === r.id ? null : r.id)}
@@ -717,6 +792,112 @@ export default function CoachDashboard({
         );
     };
 
+    // ═══ ATTENDANCE TAB ═══
+    const renderAttendance = () => {
+        if (!sel) return null;
+        if (loadingTabData) return <div style={{ padding: 40, textAlign: "center", color: B.w, fontFamily: F }}>Loading Attendance...</div>;
+        if (playerAtt.length === 0) return <div style={{ padding: 40, textAlign: "center", color: "rgba(255,255,255,0.4)", fontFamily: F }}>No attendance records found for {sel.name}</div>;
+
+        const attended = playerAtt.filter(a => a.status === 'present').length;
+        const rate = Math.round((attended / playerAtt.length) * 100);
+
+        return (
+            <div>
+                <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
+                    <div style={{ ...cardDk, flex: 1, textAlign: "center", padding: "16px 8px" }}>
+                        <div style={{ fontSize: 24, fontWeight: 900, color: rate >= 80 ? B.grn : rate >= 60 ? B.amb : B.pk, fontFamily: F }}>{rate}%</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.4)", fontFamily: F, letterSpacing: 1, marginTop: 4 }}>ATTENDANCE RATE</div>
+                    </div>
+                    <div style={{ ...cardDk, flex: 1, textAlign: "center", padding: "16px 8px" }}>
+                        <div style={{ fontSize: 24, fontWeight: 900, color: B.w, fontFamily: F }}>{attended}/{playerAtt.length}</div>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.4)", fontFamily: F, letterSpacing: 1, marginTop: 4 }}>SESSIONS ATTENDED</div>
+                    </div>
+                </div>
+                <div style={cardDk}>
+                    <div style={{ fontSize: 11, fontWeight: 800, color: B.w, fontFamily: F, marginBottom: 12 }}>History</div>
+                    {playerAtt.map(att => (
+                        <div key={att.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
+                            <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: B.w, fontFamily: F }}>{att.sessions?.title || 'Unknown Session'}</div>
+                                <div style={{ fontSize: 9, color: "rgba(255,255,255,0.4)", fontFamily: F }}>{att.sessions?.session_date ? new Date(att.sessions.session_date).toLocaleDateString() : ''} · {att.source === 'journal' ? 'Auto-logged (Journal)' : 'Coach-logged'}</div>
+                            </div>
+                            <span style={{ fontSize: 10, fontWeight: 800, padding: "3px 8px", borderRadius: 4, background: att.status === 'present' ? `${B.grn}20` : att.status === 'excused' ? `${B.amb}20` : `${B.pk}20`, color: att.status === 'present' ? B.grn : att.status === 'excused' ? B.amb : B.pk, fontFamily: F }}>
+                                {att.status.toUpperCase()}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    };
+
+    // ═══ OBSERVATIONS TAB ═══
+    const renderObservations = () => {
+        if (!sel) return null;
+        if (loadingTabData) return <div style={{ padding: 40, textAlign: "center", color: B.w, fontFamily: F }}>Loading Observations...</div>;
+        if (playerObs.length === 0) return <div style={{ padding: 40, textAlign: "center", color: "rgba(255,255,255,0.4)", fontFamily: F }}>No observation notes found for {sel.name}</div>;
+
+        return (
+            <div>
+                {playerObs.map(obs => (
+                    <div key={obs.id} style={{ ...cardDk, marginBottom: 10, borderLeft: `3px solid ${obs.rating >= 4 ? B.grn : obs.rating <= 2 ? B.pk : B.bl}` }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                <span style={{ fontSize: 10, fontWeight: 800, color: B.w, background: "rgba(255,255,255,0.1)", padding: "2px 6px", borderRadius: 4, fontFamily: F }}>{obs.domain.toUpperCase()}</span>
+                                <span style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.6)", fontFamily: F }}>{obs.skill}</span>
+                            </div>
+                            <span style={{ fontSize: 10, fontWeight: 800, color: obs.rating >= 4 ? B.grn : obs.rating <= 2 ? B.pk : B.bl, fontFamily: F }}>Score: {obs.rating}/5</span>
+                        </div>
+                        {obs.free_text && <div style={{ fontSize: 11, color: "rgba(255,255,255,0.85)", fontFamily: F, lineHeight: 1.5, marginBottom: 8 }}>{obs.free_text}</div>}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end" }}>
+                            <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                                {obs.tags?.map(t => <span key={t} style={{ fontSize: 9, color: "rgba(255,255,255,0.5)", background: "rgba(255,255,255,0.05)", padding: "2px 6px", borderRadius: 4, fontFamily: F }}>#{t}</span>)}
+                            </div>
+                            <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", fontFamily: F }}>
+                                {new Date(obs.created_at).toLocaleDateString()}
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
+    // ═══ JOURNALS TAB ═══
+    const renderJournals = () => {
+        if (!sel) return null;
+        if (loadingTabData) return <div style={{ padding: 40, textAlign: "center", color: B.w, fontFamily: F }}>Loading Journals...</div>;
+        if (playerJournals.length === 0) return <div style={{ padding: 40, textAlign: "center", color: "rgba(255,255,255,0.4)", fontFamily: F }}>No journal entries found for {sel.name}</div>;
+
+        return (
+            <div>
+                {playerJournals.map(entry => (
+                    <div key={entry.id} style={{ ...cardDk, marginBottom: 16 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", borderBottom: "1px solid rgba(255,255,255,0.08)", paddingBottom: 8, marginBottom: 10 }}>
+                            <div>
+                                <div style={{ fontSize: 12, fontWeight: 800, color: B.w, fontFamily: F }}>{entry.sessions?.title || 'Unknown Session'}</div>
+                                <div style={{ fontSize: 10, color: "rgba(255,255,255,0.4)", fontFamily: F, marginTop: 2 }}>{entry.programs?.name} · {entry.sessions?.session_date ? new Date(entry.sessions.session_date).toLocaleDateString() : ''}</div>
+                            </div>
+                            <div style={{ textAlign: "right" }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: B.w, fontFamily: F }}>Effort: <span style={{ color: B.bl }}>{entry.effort_rating}/5</span></div>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: B.w, fontFamily: F, marginTop: 2 }}>Enjoyment: <span style={{ color: B.pk }}>{entry.enjoyment_rating}/5</span></div>
+                            </div>
+                        </div>
+
+                        {Object.entries(entry.answers || {}).map(([questionText, answerText], i) => (
+                            <div key={i} style={{ marginBottom: 12 }}>
+                                <div style={{ fontSize: 10, fontWeight: 700, color: "rgba(255,255,255,0.5)", fontFamily: F, marginBottom: 4 }}>{questionText}</div>
+                                <div style={{ fontSize: 11, color: "rgba(255,255,255,0.9)", fontFamily: F, lineHeight: 1.5, background: "rgba(255,255,255,0.03)", padding: "8px 10px", borderRadius: 6 }}>
+                                    {answerText || <span style={{ color: "rgba(255,255,255,0.2)", fontStyle: "italic" }}>No answer provided</span>}
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                ))}
+            </div>
+        );
+    };
+
     // ═══ MAIN RENDER ═══
     return (
         <div style={{ minHeight: "100vh", fontFamily: F, background: dbBg }} onClick={() => tipOpen && setTipOpen(null)}>
@@ -765,11 +946,14 @@ export default function CoachDashboard({
                     {renderCohortBar()}
 
                     {/* Tabs */}
-                    <div style={{ display: "flex", gap: 4, marginBottom: 14 }}>
+                    <div style={{ display: "flex", gap: 4, marginBottom: 14, overflowX: "auto", paddingBottom: 4 }}>
                         {[
                             { id: "overview", label: "Overview" },
                             { id: "domains", label: "Domains" },
                             { id: "compare", label: "Compare" },
+                            { id: "attendance", label: "Attendance" },
+                            { id: "observations", label: "Observations" },
+                            { id: "journals", label: "Journals" },
                         ].map(t => (
                             <button key={t.id} onClick={() => setTab(t.id)} style={tabStyle(tab === t.id)}>{t.label}</button>
                         ))}
@@ -779,6 +963,9 @@ export default function CoachDashboard({
                     {tab === "overview" && renderOverview()}
                     {tab === "domains" && renderDomains()}
                     {tab === "compare" && renderCompare()}
+                    {tab === "attendance" && renderAttendance()}
+                    {tab === "observations" && renderObservations()}
+                    {tab === "journals" && renderJournals()}
                 </div>
             </div>
         </div>

@@ -8,11 +8,9 @@ import { supabase } from '../supabaseClient';
 export async function signInWithUsername(username, password) {
     const cleanUsername = username.toLowerCase().trim();
 
-    // Look up the member to verify they exist and are active
+    // Use security-definer RPC to restrict anon access to only login-required fields
     const { data: member, error: lookupError } = await supabase
-        .from('program_members')
-        .select('auth_user_id, role, active')
-        .eq('username', cleanUsername)
+        .rpc('lookup_member_for_login', { p_username: cleanUsername })
         .single();
 
     if (lookupError || !member) {

@@ -4,12 +4,12 @@ import { B, F, LOGO, sGrad, sCard, _isDesktop, DSZ, DSF } from '../data/theme';
 import { TIER_GROUPS, isCommunityGroup } from '../data/competitionData';
 
 // ═══ HEADER ═══
-export function Hdr({ label }) {
+export function Hdr({ label, onLogoClick }) {
     return (
         <div style={{ ...sGrad, padding: "16px 16px 14px", position: "relative", overflow: "hidden" }}>
             <div style={{ position: "absolute", top: -20, right: -30, width: 180, height: 180, borderRadius: "50%", border: "2px solid rgba(255,255,255,0.06)" }} />
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <img src={LOGO} alt="" style={{ width: 40, height: 40, objectFit: "contain" }} />
+                <img src={LOGO} alt="" onClick={onLogoClick} style={{ width: 40, height: 40, objectFit: "contain", cursor: onLogoClick ? "pointer" : "default", transition: "opacity 0.2s" }} title={onLogoClick ? "Sign out" : undefined} />
                 <div>
                     <div style={{ fontSize: 9, fontWeight: 700, color: "rgba(255,255,255,0.6)", letterSpacing: 2, textTransform: "uppercase", fontFamily: F }}>Rajasthan Royals Academy Melbourne</div>
                     <div style={{ fontSize: 17, fontWeight: 800, color: B.w, fontFamily: F }}>Player DNA Report</div>
@@ -78,7 +78,7 @@ export function NumInp({ label, value, onChange, w = 52 }) {
     );
 }
 
-// ═══ DOTS (1-5 RATING) ═══
+// ═══ DOTS (1-5 RATING — standalone, kept for other uses) ═══
 export function Dots({ value, onChange, color = B.pk }) {
     return (
         <div style={{ display: "flex", gap: _isDesktop ? 6 : 5 }}>
@@ -95,7 +95,177 @@ export function Dots({ value, onChange, color = B.pk }) {
     );
 }
 
-// ═══ ASSESSMENT ROW ═══
+// ═══ ASSESSMENT GRID — 3-column accordion tiles with green completion ring ═══
+const RATING_LABELS = ['', 'Just Starting', 'Developing', 'Solid', 'Strong', 'Elite'];
+const COACH_LABELS = ['', 'Novice', 'Developing', 'Competent', 'Advanced', 'Elite'];
+
+export function AssGrid({ items, values, onRate, color, SKILL_DEFS, keyPrefix }) {
+    const [openIdx, setOpenIdx] = useState(null);
+    return (
+        <div style={{ display: 'grid', gridTemplateColumns: _isDesktop ? 'repeat(3, 1fr)' : '1fr', gap: 6 }}>
+            {items.map((item, i) => {
+                const k = `${keyPrefix}_${i}`;
+                const v = values[k] || 0;
+                const isOpen = openIdx === i;
+                const defs = SKILL_DEFS?.[item];
+                const done = v > 0;
+                return (
+                    <div key={item} style={{
+                        background: isOpen ? B.w : B.g100,
+                        borderRadius: 10,
+                        border: isOpen ? `2px solid ${color}40` : `1.5px solid ${done ? `${B.grn}50` : B.g200}`,
+                        overflow: 'hidden',
+                        transition: 'all 0.25s ease',
+                        gridColumn: isOpen && _isDesktop ? '1 / -1' : undefined,
+                        boxShadow: isOpen ? `0 4px 16px ${color}15` : 'none',
+                    }}>
+                        {/* ── Collapsed tile header ── */}
+                        <div
+                            onClick={() => setOpenIdx(isOpen ? null : i)}
+                            style={{
+                                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                padding: isOpen ? '10px 14px' : '10px 12px',
+                                cursor: 'pointer', userSelect: 'none',
+                                background: isOpen ? `linear-gradient(135deg, ${color}08, ${color}03)` : 'transparent',
+                                transition: 'background 0.2s',
+                            }}
+                        >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 0, flex: 1 }}>
+                                {/* Green completion ring */}
+                                <div style={{
+                                    width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+                                    border: `2px solid ${done ? B.grn : B.g200}`,
+                                    background: done ? `${B.grn}15` : 'transparent',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    transition: 'all 0.3s',
+                                }}>
+                                    {done ? (
+                                        <span style={{ fontSize: 11, color: B.grn, fontWeight: 800, lineHeight: 1 }}>✓</span>
+                                    ) : (
+                                        <span style={{ fontSize: 8, color: B.g400, fontWeight: 600 }}>—</span>
+                                    )}
+                                </div>
+                                <div style={{
+                                    fontSize: 11, fontWeight: 600, color: B.g800, fontFamily: F,
+                                    whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                                }}>
+                                    {item}
+                                </div>
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                                {done && !isOpen && (
+                                    <div style={{
+                                        fontSize: 9, fontWeight: 700, color: B.w, fontFamily: F,
+                                        background: color, borderRadius: 4, padding: '2px 6px',
+                                        lineHeight: 1.3,
+                                    }}>
+                                        {v}/5
+                                    </div>
+                                )}
+                                <span style={{
+                                    fontSize: 10, color: B.g400, transition: 'transform 0.25s',
+                                    transform: isOpen ? 'rotate(180deg)' : 'rotate(0)',
+                                    display: 'inline-block',
+                                }}>▾</span>
+                            </div>
+                        </div>
+
+                        {/* ── Expanded accordion body ── */}
+                        {isOpen && (
+                            <div style={{ padding: '0 14px 14px' }}>
+                                {/* Rating tiles */}
+                                <div style={{
+                                    display: 'grid',
+                                    gridTemplateColumns: _isDesktop ? 'repeat(5, 1fr)' : 'repeat(5, 1fr)',
+                                    gap: 6, marginBottom: defs ? 10 : 0,
+                                }}>
+                                    {[1, 2, 3, 4, 5].map(n => {
+                                        const sel = v === n;
+                                        const labels = defs ? COACH_LABELS : RATING_LABELS;
+                                        return (
+                                            <button key={n} onClick={() => onRate(k, v === n ? 0 : n)}
+                                                style={{
+                                                    border: sel ? `2px solid ${color}` : `1.5px solid ${B.g200}`,
+                                                    borderRadius: 8,
+                                                    background: sel ? `${color}12` : B.w,
+                                                    padding: '8px 4px',
+                                                    cursor: 'pointer',
+                                                    transition: 'all 0.2s',
+                                                    display: 'flex', flexDirection: 'column',
+                                                    alignItems: 'center', gap: 3,
+                                                    boxShadow: sel ? `0 2px 8px ${color}20` : 'none',
+                                                }}
+                                            >
+                                                <div style={{
+                                                    width: 26, height: 26, borderRadius: '50%',
+                                                    border: `2px solid ${sel ? color : B.g200}`,
+                                                    background: sel ? color : 'transparent',
+                                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                                    fontSize: 11, fontWeight: 800,
+                                                    color: sel ? B.w : B.g400, fontFamily: F,
+                                                    transition: 'all 0.2s',
+                                                }}>{n}</div>
+                                                <div style={{
+                                                    fontSize: 8, fontWeight: 700, color: sel ? color : B.g400,
+                                                    fontFamily: F, textTransform: 'uppercase', letterSpacing: 0.3,
+                                                    lineHeight: 1.2, textAlign: 'center',
+                                                }}>{labels[n]}</div>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+
+                                {/* Definition text for selected rating */}
+                                {defs && v > 0 && (
+                                    <div style={{
+                                        background: `${color}08`, borderRadius: 8,
+                                        padding: '8px 12px', border: `1px solid ${color}20`,
+                                        marginBottom: 6,
+                                    }}>
+                                        <div style={{ fontSize: 10, color: color, fontWeight: 700, fontFamily: F, marginBottom: 2 }}>
+                                            Level {v} — {(defs === SKILL_DEFS?.[item] ? COACH_LABELS : RATING_LABELS)[v]}
+                                        </div>
+                                        <div style={{ fontSize: 10, color: B.g600, fontFamily: F, lineHeight: 1.5 }}>
+                                            {defs[v]}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* All definitions (collapsed by default, show on tap) */}
+                                {defs && v === 0 && (
+                                    <div style={{
+                                        background: B.g50, borderRadius: 8, padding: '8px 10px',
+                                        border: `1px solid ${B.g200}`,
+                                    }}>
+                                        <div style={{ fontSize: 9, fontWeight: 700, color: B.g400, fontFamily: F, marginBottom: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                            Tap a rating to see its definition
+                                        </div>
+                                        {[1, 2, 3, 4, 5].map(n => (
+                                            <div key={n} style={{
+                                                display: 'flex', gap: 6, marginBottom: n < 5 ? 3 : 0,
+                                                alignItems: 'flex-start', opacity: 0.7,
+                                            }}>
+                                                <div style={{
+                                                    fontSize: 8, fontWeight: 800, color: B.g400, fontFamily: F,
+                                                    width: 12, flexShrink: 0, marginTop: 1,
+                                                }}>{n}.</div>
+                                                <div style={{
+                                                    fontSize: 9, color: B.g500, fontFamily: F, lineHeight: 1.4,
+                                                }}>{defs[n]}</div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
+        </div>
+    );
+}
+
+// ═══ ASSESSMENT ROW (legacy — kept for backward compat) ═══
 export function AssRow({ label, value, onR, color, SKILL_DEFS }) {
     const [showDefs, setShowDefs] = useState(false);
     const defs = SKILL_DEFS?.[label];
