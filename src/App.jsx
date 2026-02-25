@@ -20,8 +20,8 @@ import SquadRoster from "./coach/SquadRoster";
 import { generateReportPDF } from "./coach/reportGenerator";
 
 // ═══ DATA & ENGINE ═══
-import { B, F, LOGO, sGrad, dkWrap, _isDesktop } from "./data/theme";
-import { ROLES, IQ_ITEMS, MN_ITEMS, PH_MAP, PHASES } from "./data/skillItems";
+import { B, F, LOGO, sGrad, sCard, dkWrap, _isDesktop } from "./data/theme";
+import { ROLES, IQ_ITEMS, MN_ITEMS, PH_MAP, PHASES, VOICE_QS } from "./data/skillItems";
 import { getAge, getBracket, calcCCM, calcPDI, calcCohortPercentile, calcAgeScore, techItems } from "./engine/ratingEngine";
 import { loadPlayersFromDB, saveAssessmentToDB } from "./db/playerDb";
 import { MOCK } from "./data/mockPlayers";
