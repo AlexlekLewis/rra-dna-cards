@@ -11,6 +11,7 @@ import { ErrorBoundary } from "./shared/ErrorBoundary";
 const CoachDashboard = React.lazy(() => import("./CoachDashboard"));
 const AdminDashboard = React.lazy(() => import("./AdminDashboard"));
 const EliteProgram = React.lazy(() => import("./coach/EliteProgram"));
+const TrialAssessment = React.lazy(() => import("./coach/TrialAssessment"));
 const PlayerOnboarding = React.lazy(() => import("./player/PlayerOnboarding"));
 const PlayerPortal = React.lazy(() => import("./player/PlayerPortal"));
 
@@ -212,6 +213,18 @@ function MainApp() {
       />
     );
 
+    // TRIAL DAY
+    if (cView === "trial") return (
+      <TrialAssessment
+        session={session}
+        players={players}
+        onBack={() => { setCView("list"); goTop(); }}
+        getAge={getAge}
+        getBracket={getBracket}
+        isAdmin={isAdmin}
+      />
+    );
+
     // ELITE PROGRAM
     if (cView === "program") return (
       <EliteProgram
@@ -290,7 +303,8 @@ function MainApp() {
       <div style={{ padding: 12, ...dkWrap }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
           <SecH title={`Player Roster (${players.filter(p => p.submitted).length})`} sub="Tap player to view survey or assess" />
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+            <button onClick={() => { setCView("trial"); goTop(); }} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: `linear-gradient(135deg,${B.org},${B.amb})`, fontSize: 11, fontWeight: 700, color: B.w, cursor: "pointer", fontFamily: F, whiteSpace: "nowrap", boxShadow: `0 2px 8px ${B.org}30` }}>🏏 Trial Day</button>
             <button onClick={() => { setCView("squads"); goTop(); }} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: `linear-gradient(135deg,${B.pk},${B.prp})`, fontSize: 11, fontWeight: 700, color: B.w, cursor: "pointer", fontFamily: F, whiteSpace: "nowrap" }}>🏟️ My Squads</button>
             <button onClick={() => { setCView("program"); goTop(); }} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: `linear-gradient(135deg,${B.nvD},${B.bl})`, fontSize: 11, fontWeight: 700, color: B.w, cursor: "pointer", fontFamily: F, whiteSpace: "nowrap" }}>📋 Elite Program</button>
             <button onClick={() => { setCView("dashboard"); goTop(); }} style={{ padding: "6px 14px", borderRadius: 8, border: "none", background: `linear-gradient(135deg,${B.bl},${B.pk})`, fontSize: 11, fontWeight: 700, color: B.w, cursor: "pointer", fontFamily: F, whiteSpace: "nowrap" }}>📊 Dashboard</button>

@@ -1,7 +1,14 @@
-// ═══ RATING ENGINE — Pure calculation logic, no UI, no Supabase ═══
+// ═══ RATING ENGINE v2.0 — 8-Pillar DNA System ═══
+// Pure calculation logic, no UI, no Supabase
 import { B } from '../data/theme';
-import { ROLES, BAT_ITEMS, PACE_ITEMS, SPIN_ITEMS, KEEP_ITEMS, IQ_ITEMS, MN_ITEMS, PH_MAP } from '../data/skillItems';
-import { FALLBACK_RW, FALLBACK_CONST } from '../data/fallbacks';
+import {
+    ROLES, BAT_ITEMS, PACE_ITEMS, SPIN_ITEMS, KEEP_ITEMS,
+    IQ_ITEMS, MN_ITEMS, PH_MAP, FLD_ITEMS, PWR_ITEMS,
+    BAT_ARCH, BWL_ARCH,
+    BAT_ARCH_AFFINITY, BWL_ARCH_AFFINITY,
+    BAT_SIGNAL_MAP,
+} from '../data/skillItems';
+import { FALLBACK_RW, FALLBACK_CONST, ARCHETYPE_ALIGNMENT } from '../data/fallbacks';
 
 // ═══ HELPERS ═══
 export function getAge(dob) {
@@ -19,8 +26,20 @@ export function getBracket(dob) {
     return "U20+";
 }
 
-// ═══ DOMAIN MAP ═══
+// ═══ DOMAIN MAP (8 PILLARS) ═══
 export const DM = [
+    { k: "tm", l: "Technical Mastery", c: B.pk, priPfx: "t1_", secPfx: "t2_" },
+    { k: "te", l: "Tactical Execution", c: B.sky, pfx: "iq_" },
+    { k: "pc", l: "Physical Conditioning", c: B.nv, pfx: "ph_" },
+    { k: "mr", l: "Mental Resilience", c: B.prp, pfx: "mn_" },
+    { k: "af", l: "Athletic Fielding", c: B.grn, pfx: "fld_" },
+    { k: "mi", l: "Match Impact", c: B.org, pfx: "pb_" },
+    { k: "pw", l: "Power Hitting", c: B.pk, pfx: "pwr_" },
+    { k: "sa", l: "Self-Awareness", c: B.bl },
+];
+
+// Legacy DM for backward compatibility (used by old CoachDashboard renderDomains)
+export const DM_LEGACY = [
     { k: "t", l: "Technical", c: B.pk, priPfx: "t1_", secPfx: "t2_" },
     { k: "i", l: "Game Intelligence", c: B.sky, pfx: "iq_" },
     { k: "m", l: "Mental & Character", c: B.prp, pfx: "mn_" },
@@ -86,16 +105,15 @@ export const FALLBACK_SUB_WEIGHTS = {
 };
 
 export const FALLBACK_DOMAIN_WEIGHTS = {
-    young: { t: 0.28, i: 0.20, m: 0.18, h: 0.14, ph: 0.10, s: 0.10 },
-    mid: { t: 0.26, i: 0.18, m: 0.16, h: 0.12, ph: 0.10, s: 0.18 },
-    senior: { t: 0.22, i: 0.16, m: 0.14, h: 0.10, ph: 0.08, s: 0.30 },
+    young: { tm: .14, te: .18, mr: .14, pc: .08, af: .10, mi: .12, pw: .10, sa: .14 },
+    mid: { tm: .14, te: .16, mr: .14, pc: .08, af: .10, mi: .14, pw: .10, sa: .14 },
+    senior: { tm: .14, te: .14, mr: .12, pc: .08, af: .10, mi: .18, pw: .10, sa: .14 },
 };
 
 export const FALLBACK_THRESHOLDS = { minBatInn: 5, minOvers: 20, minMatches: 5 };
 
-// ═══ PEAK PERFORMANCE BENCHMARKS (innings / spell level) ═══
+// ═══ PEAK PERFORMANCE BENCHMARKS ═══
 export const PEAK_BENCHMARKS = {
-    // Batting: runs scored in a single innings
     batRuns: {
         low: [15, 25, 40, 60, 85],
         mid: [12, 22, 35, 55, 80],
@@ -103,9 +121,7 @@ export const PEAK_BENCHMARKS = {
         elite: [8, 15, 25, 45, 70],
         top: [6, 12, 22, 40, 65],
     },
-    // Bowling: wickets taken in a single spell (same for all bands)
     bowlWkts: [0, 1, 2, 3, 4],
-    // Bowling economy: reuse season benchmarks per band (already per-over)
 };
 
 const SEASON_WEIGHT = 0.70;
@@ -151,7 +167,6 @@ export function getAgeTier(age) {
 }
 
 // ═══ PEAK PERFORMANCE SCORING ═══
-// Resolves a competition name to its CTI value using the compTiers lookup
 function resolveCTI(compName, compTiers, fallbackCTI) {
     if (!compName || !compTiers?.length) return fallbackCTI;
     const tier = compTiers.find(t => t.competition_name === compName);
@@ -164,7 +179,6 @@ export function calcPeakScore(topBat, topBowl, compTiers, fallbackCTI, role, opt
     const allSubWeights = opts.statSubWeights || FALLBACK_SUB_WEIGHTS;
     const sub = allSubWeights[role] || allSubWeights.batter;
 
-    // ── Score each batting innings, take the best ──
     let bestBatScore = 0;
     const batScores = [];
     (topBat || []).forEach(b => {
@@ -174,20 +188,18 @@ export function calcPeakScore(topBat, topBowl, compTiers, fallbackCTI, role, opt
         const band = getCTIBand(perfCTI);
         const runsBench = peakBench.batRuns?.[band] || peakBench.batRuns?.mid || [12, 22, 35, 55, 80];
         const runsScore = scoreAgainstBenchmark(runs, runsBench);
-        // Optional: score SR if balls data available
         const balls = +b.balls || 0;
         let innScore = runsScore;
         if (balls > 0 && runs > 0) {
             const sr = (runs / balls) * 100;
             const srBench = allSeasonBench[band]?.batSR || [45, 60, 75, 90, 110];
             const srScore = scoreAgainstBenchmark(sr, srBench);
-            if (srScore > 0) innScore = (runsScore * 0.7) + (srScore * 0.3); // runs matter more for peaks
+            if (srScore > 0) innScore = (runsScore * 0.7) + (srScore * 0.3);
         }
         if (innScore > bestBatScore) bestBatScore = innScore;
         batScores.push({ runs, score: Math.round(innScore * 100) / 100, band, comp: b.comp, vs: b.vs });
     });
 
-    // ── Score each bowling spell, take the best ──
     let bestBowlScore = 0;
     const bowlScores = [];
     (topBowl || []).forEach(b => {
@@ -197,26 +209,21 @@ export function calcPeakScore(topBat, topBowl, compTiers, fallbackCTI, role, opt
         if (wkts <= 0 && bRuns <= 0) return;
         const perfCTI = resolveCTI(b.comp, compTiers, fallbackCTI);
         const band = getCTIBand(perfCTI);
-
-        // Wickets score
         const wktsBench = peakBench.bowlWkts || [0, 1, 2, 3, 4];
         const wktsScore = scoreAgainstBenchmark(wkts, wktsBench);
-
-        // Economy score (if overs bowled)
         let spellScore = wktsScore;
         if (overs > 0 && bRuns >= 0) {
             const econ = bRuns / overs;
             const econBench = allSeasonBench[band]?.bowlEcon || [7.0, 6.0, 5.0, 4.0, 3.0];
             const econScore = scoreAgainstBenchmark(econ, econBench, true);
             if (econScore > 0 && wktsScore > 0) {
-                spellScore = (wktsScore * 0.6) + (econScore * 0.4); // wickets matter more for peaks
+                spellScore = (wktsScore * 0.6) + (econScore * 0.4);
             }
         }
         if (spellScore > bestBowlScore) bestBowlScore = spellScore;
         bowlScores.push({ wkts, runs: bRuns, score: Math.round(spellScore * 100) / 100, band, comp: b.comp, vs: b.vs });
     });
 
-    // ── Combine using role sub-weights (bat/bowl only, no fielding for peaks) ──
     let totalScore = 0, totalWeight = 0;
     if (bestBatScore > 0) { totalScore += bestBatScore * sub[0]; totalWeight += sub[0]; }
     if (bestBowlScore > 0) { totalScore += bestBowlScore * sub[1]; totalWeight += sub[1]; }
@@ -226,8 +233,7 @@ export function calcPeakScore(topBat, topBowl, compTiers, fallbackCTI, role, opt
         score: Math.round(score * 100) / 100,
         bestBat: Math.round(bestBatScore * 100) / 100,
         bestBowl: Math.round(bestBowlScore * 100) / 100,
-        batScores,
-        bowlScores,
+        batScores, bowlScores,
         hasPeaks: bestBatScore > 0 || bestBowlScore > 0,
     };
 }
@@ -237,10 +243,8 @@ export function calcStatDomain(grades, role, cti, arm, playerAge, opts = {}, top
     const peakResult = calcPeakScore(topBat, topBowl, compTiers, cti, role, opts);
     const hasPeaks = peakResult.hasPeaks;
 
-    // If no season data AND no peaks, nothing to score
     if (!hasSeason && !hasPeaks) return { css: 0, score: 0, breakdown: null, eligible: false, peakResult: null };
 
-    // ═══ SEASON SCORE (existing logic) ═══
     let seasonScore = 0;
     let batMean = 0, bowlMean = 0, fieldScore = 0;
     let band = getCTIBand(cti);
@@ -310,14 +314,13 @@ export function calcStatDomain(grades, role, cti, arm, playerAge, opts = {}, top
         }
     }
 
-    // ═══ BLEND: Season (70%) + Peak (30%) ═══
     let rawScore;
     if (seasonScore > 0 && hasPeaks) {
         rawScore = seasonScore * SEASON_WEIGHT + peakResult.score * PEAK_WEIGHT;
     } else if (seasonScore > 0) {
         rawScore = seasonScore;
     } else if (hasPeaks) {
-        rawScore = peakResult.score * 0.80; // peaks only — reduced (no consistency proof)
+        rawScore = peakResult.score * 0.80;
     } else {
         rawScore = 0;
     }
@@ -350,7 +353,142 @@ export function calcCSS(coachVal, playerVal, ccm, cW, pW) {
     return 0;
 }
 
-// ═══ PDI CALCULATION ═══
+// ═══ SELF-AWARENESS SCORE (SAGI → 1-5) ═══
+// Converts the absolute gap between player and coach into a 1-5 pillar score
+// SAGI of 0 → 5/5 (perfectly aligned)
+// SAGI of ±2 → 1/5 (significantly misaligned)
+export function calcSelfAwarenessScore(sagi, constants) {
+    if (sagi === null || sagi === undefined) return 0;
+    const c = constants || FALLBACK_CONST;
+    const penalty = parseFloat(c.sagi_penalty_factor) || 2.0;
+    const floor = parseFloat(c.sagi_floor_score) || 1.0;
+    const raw = 5 - Math.abs(sagi) * penalty;
+    return Math.round(Math.max(floor, Math.min(5, raw)) * 100) / 100;
+}
+
+// ═══ ARCHETYPE DNA PERCENTAGE ═══
+// Calculates what % of each batting archetype a player's profile reflects
+// Uses: coach-assigned archetype (weighted heavily), onboarding signals (shots, phases, position)
+export function calcArchetypeDNA(onboardingData, coachBatArchetype, coachBowlArchetype) {
+    const batArchetypes = BAT_ARCH.map(a => a.id);
+    const bowlArchetypes = BWL_ARCH.map(a => a.id);
+    const batScores = {};
+    const bowlScores = {};
+    batArchetypes.forEach(a => { batScores[a] = 0; });
+    bowlArchetypes.forEach(a => { bowlScores[a] = 0; });
+
+    // ── Coach-assigned archetype gets a heavy base (weight = 3.0) ──
+    if (coachBatArchetype && batScores[coachBatArchetype] !== undefined) {
+        batScores[coachBatArchetype] += 3.0;
+    }
+    if (coachBowlArchetype && bowlScores[coachBowlArchetype] !== undefined) {
+        bowlScores[coachBowlArchetype] += 3.0;
+    }
+
+    // ── Onboarding signal-based archetype scoring ──
+    const signals = BAT_SIGNAL_MAP;
+    const data = onboardingData || {};
+
+    // Go-to shots
+    const goToShots = data.goToShots || [];
+    goToShots.forEach(shot => {
+        const affinities = signals.shots?.[shot];
+        if (affinities) {
+            Object.entries(affinities).forEach(([arch, wt]) => {
+                if (batScores[arch] !== undefined) batScores[arch] += wt;
+            });
+        }
+    });
+
+    // Batting phase preference
+    const batPhases = data.batPhases || [];
+    batPhases.forEach(phase => {
+        const affinities = signals.phases?.[phase];
+        if (affinities) {
+            Object.entries(affinities).forEach(([arch, wt]) => {
+                if (batScores[arch] !== undefined) batScores[arch] += wt;
+            });
+        }
+    });
+
+    // Batting position
+    const batPos = data.batPosition;
+    if (batPos && signals.positions?.[batPos]) {
+        Object.entries(signals.positions[batPos]).forEach(([arch, wt]) => {
+            if (batScores[arch] !== undefined) batScores[arch] += wt;
+        });
+    }
+
+    // Comfort vs spin (if rated 4+)
+    if (data.comfortSpin >= 4 && signals.comfortSpin) {
+        Object.entries(signals.comfortSpin).forEach(([arch, wt]) => {
+            if (batScores[arch] !== undefined) batScores[arch] += wt;
+        });
+    }
+
+    // Comfort vs pace (if rated 4+)
+    if (data.comfortPace >= 4 && signals.comfortPace) {
+        Object.entries(signals.comfortPace).forEach(([arch, wt]) => {
+            if (batScores[arch] !== undefined) batScores[arch] += wt;
+        });
+    }
+
+    // ── Normalise to percentages ──
+    const batTotal = Object.values(batScores).reduce((s, v) => s + v, 0);
+    const batDNA = {};
+    batArchetypes.forEach(a => {
+        batDNA[a] = batTotal > 0 ? Math.round((batScores[a] / batTotal) * 100) : 0;
+    });
+
+    const bowlTotal = Object.values(bowlScores).reduce((s, v) => s + v, 0);
+    const bowlDNA = {};
+    bowlArchetypes.forEach(a => {
+        bowlDNA[a] = bowlTotal > 0 ? Math.round((bowlScores[a] / bowlTotal) * 100) : 0;
+    });
+
+    // Ensure percentages sum to 100 (fix rounding)
+    const fixRounding = (dna) => {
+        const total = Object.values(dna).reduce((s, v) => s + v, 0);
+        if (total !== 100 && total > 0) {
+            const maxKey = Object.entries(dna).reduce((a, b) => b[1] > a[1] ? b : a)[0];
+            dna[maxKey] += (100 - total);
+        }
+        return dna;
+    };
+
+    return {
+        bat: fixRounding(batDNA),
+        bowl: fixRounding(bowlDNA),
+        primaryBat: Object.entries(batDNA).reduce((a, b) => b[1] > a[1] ? b : a, ['', 0])[0],
+        primaryBowl: Object.entries(bowlDNA).reduce((a, b) => b[1] > a[1] ? b : a, ['', 0])[0],
+    };
+}
+
+// ═══ GROWTH DELTA ═══
+// Compares two PDI result objects (e.g., baseline vs current) and returns per-pillar deltas
+export function calcGrowthDelta(baselinePDI, currentPDI) {
+    if (!baselinePDI?.domains || !currentPDI?.domains) return null;
+    const deltas = {};
+    currentPDI.domains.forEach(d => {
+        const base = baselinePDI.domains.find(b => b.k === d.k);
+        deltas[d.k] = {
+            label: d.l,
+            color: d.c,
+            baseline: base?.raw || 0,
+            current: d.raw || 0,
+            delta: Math.round(((d.raw || 0) - (base?.raw || 0)) * 100) / 100,
+        };
+    });
+    return {
+        deltas,
+        pdiDelta: Math.round((currentPDI.pdi - baselinePDI.pdi) * 100) / 100,
+        sagiDelta: (currentPDI.sagi !== null && baselinePDI.sagi !== null)
+            ? Math.round((currentPDI.sagi - baselinePDI.sagi) * 100) / 100
+            : null,
+    };
+}
+
+// ═══ PDI CALCULATION (8-PILLAR) ═══
 export function calcPDI(coachData, selfData, role, ccmResult, dbWeights, constants, playerGrades, opts = {}, topBat = [], topBowl = [], compTiers = []) {
     const c = constants || FALLBACK_CONST;
     const cW = parseFloat(c.coach_weight) || 0.75, pW = parseFloat(c.player_weight) || 0.25;
@@ -365,8 +503,22 @@ export function calcPDI(coachData, selfData, role, ccmResult, dbWeights, constan
     const ageW = domainWeights[ageTier];
 
     const w = dbW || (FALLBACK_RW[role] || FALLBACK_RW.batter);
-    const useW = { t: ageW.t, i: ageW.i, m: ageW.m, h: ageW.h, ph: ageW.ph, s: ageW.s };
 
+    // Use 8-pillar weights: prefer age-tier weights, fallback to role-based
+    const useW = {
+        tm: ageW.tm ?? w.tm ?? 0.14,
+        te: ageW.te ?? w.te ?? 0.18,
+        pc: ageW.pc ?? w.pc ?? 0.08,
+        mr: ageW.mr ?? w.mr ?? 0.14,
+        af: ageW.af ?? w.af ?? 0.10,
+        mi: ageW.mi ?? w.mi ?? 0.12,
+        pw: ageW.pw ?? w.pw ?? 0.10,
+        sa: ageW.sa ?? w.sa ?? 0.14,
+    };
+
+    // ═══ PILLAR 1: TECHNICAL MASTERY ═══
+    // Uses primary + secondary tech items, EXCLUDING Power Hitting (index 4) and Death-Over Hitting (index 9)
+    // from the Technical pillar (those now score under Power Hitting pillar)
     const priAvg = dAvg(coachData, "t1_", t.pri.length);
     const secAvg = dAvg(coachData, "t2_", t.sec.length);
     const priSelf = dAvg(selfData || {}, "t1_", t.pri.length);
@@ -374,21 +526,30 @@ export function calcPDI(coachData, selfData, role, ccmResult, dbWeights, constan
     const techAll = priAvg.r + secAvg.r, techSelf = priSelf.r + secSelf.r;
     const techCoachMean = techAll > 0 ? (priAvg.a * priAvg.r + secAvg.a * secAvg.r) / techAll : 0;
     const techSelfMean = techSelf > 0 ? (priSelf.a * priSelf.r + secSelf.a * secSelf.r) / techSelf : 0;
-    const techCSS = ccm > 0 ? calcCSS(techCoachMean, techSelfMean, ccm, cW, pW) : (techCoachMean || techSelfMean);
+    const tmCSS = ccm > 0 ? calcCSS(techCoachMean, techSelfMean, ccm, cW, pW) : (techCoachMean || techSelfMean);
     const techTotal = priAvg.t + secAvg.t;
 
+    // ═══ PILLAR 2: TACTICAL EXECUTION ═══
     const iqAvg = dAvg(coachData, "iq_", IQ_ITEMS.length);
     const iqSelf = dAvg(selfData || {}, "iq_", IQ_ITEMS.length);
-    const iqCSS = ccm > 0 ? calcCSS(iqAvg.a, iqSelf.a, ccm, cW, pW) : (iqAvg.a || iqSelf.a);
+    const teCSS = ccm > 0 ? calcCSS(iqAvg.a, iqSelf.a, ccm, cW, pW) : (iqAvg.a || iqSelf.a);
 
-    const mnAvg = dAvg(coachData, "mn_", MN_ITEMS.length);
-    const mnSelf = dAvg(selfData || {}, "mn_", MN_ITEMS.length);
-    const mnCSS = ccm > 0 ? calcCSS(mnAvg.a, mnSelf.a, ccm, cW, pW) : (mnAvg.a || mnSelf.a);
-
+    // ═══ PILLAR 3: PHYSICAL CONDITIONING ═══
     const phAvg = dAvg(coachData, "ph_", (PH_MAP[role] || PH_MAP.batter).length);
     const phSelf = dAvg(selfData || {}, "ph_", (PH_MAP[role] || PH_MAP.batter).length);
-    const phCSS = ccm > 0 ? calcCSS(phAvg.a, phSelf.a, ccm, cW, pW) : (phAvg.a || phSelf.a);
+    const pcCSS = ccm > 0 ? calcCSS(phAvg.a, phSelf.a, ccm, cW, pW) : (phAvg.a || phSelf.a);
 
+    // ═══ PILLAR 4: MENTAL RESILIENCE ═══
+    const mnAvg = dAvg(coachData, "mn_", MN_ITEMS.length);
+    const mnSelf = dAvg(selfData || {}, "mn_", MN_ITEMS.length);
+    const mrCSS = ccm > 0 ? calcCSS(mnAvg.a, mnSelf.a, ccm, cW, pW) : (mnAvg.a || mnSelf.a);
+
+    // ═══ PILLAR 5: ATHLETIC FIELDING ═══
+    const fldAvg = dAvg(coachData, "fld_", FLD_ITEMS.length);
+    const fldSelf = dAvg(selfData || {}, "fld_", FLD_ITEMS.length);
+    const afCSS = ccm > 0 ? calcCSS(fldAvg.a, fldSelf.a, ccm, cW, pW) : (fldAvg.a || fldSelf.a);
+
+    // ═══ PILLAR 6: MATCH IMPACT (Phase Effectiveness + Statistical Performance merged) ═══
     const phaseKeys = ["pb_pp", "pw_pp", "pb_mid", "pw_mid", "pb_death", "pw_death"];
     let phaseSum = 0, phaseN = 0;
     phaseKeys.forEach(k => { if (coachData[k] > 0) { phaseSum += coachData[k]; phaseN++; } });
@@ -398,17 +559,68 @@ export function calcPDI(coachData, selfData, role, ccmResult, dbWeights, constan
     const phaseSelfMean = phaseSelfN > 0 ? phaseSelfSum / phaseSelfN : 0;
     const phaseCSS = ccm > 0 ? calcCSS(phaseMean, phaseSelfMean, ccm, cW, pW) : (phaseMean || phaseSelfMean);
 
+    // Stat domain feeds into Match Impact
     const cti = ccmResult?.cti || 0;
     const arm = ccmResult?.arm || 1;
     const statResult = calcStatDomain(playerGrades, role, cti, arm, playerAge, opts, topBat, topBowl, compTiers);
 
+    // Blend phase (60%) + stat (40%) for Match Impact when both available
+    let miCSS;
+    if (phaseCSS > 0 && statResult.css > 0) {
+        miCSS = phaseCSS * 0.60 + statResult.css * 0.40;
+    } else if (phaseCSS > 0) {
+        miCSS = phaseCSS;
+    } else {
+        miCSS = statResult.css;
+    }
+
+    // ═══ PILLAR 7: POWER HITTING ═══
+    const pwrAvg = dAvg(coachData, "pwr_", PWR_ITEMS.length);
+    const pwrSelf = dAvg(selfData || {}, "pwr_", PWR_ITEMS.length);
+    let pwCSS = ccm > 0 ? calcCSS(pwrAvg.a, pwrSelf.a, ccm, cW, pW) : (pwrAvg.a || pwrSelf.a);
+
+    // If Power Hitting pillar has no dedicated pwr_ data yet, fall back to BAT_ITEMS[4] + BAT_ITEMS[9]
+    if (pwrAvg.r === 0 && pwrSelf.r === 0) {
+        const pwCoach = ((coachData?.t1_4 || 0) + (coachData?.t1_9 || 0));
+        const pwSelf = ((selfData?.t1_4 || 0) + (selfData?.t1_9 || 0));
+        const pwCoachMean = pwCoach > 0 ? pwCoach / ([coachData?.t1_4, coachData?.t1_9].filter(v => v > 0).length || 1) : 0;
+        const pwSelfMean = pwSelf > 0 ? pwSelf / ([selfData?.t1_4, selfData?.t1_9].filter(v => v > 0).length || 1) : 0;
+        pwCSS = ccm > 0 ? calcCSS(pwCoachMean, pwSelfMean, ccm, cW, pW) : (pwCoachMean || pwSelfMean);
+    }
+
+    // ═══ SAGI (Self-Awareness Gap Index) ═══
+    let coachSum = 0, coachN = 0, selfSum = 0, selfN = 0;
+    const allPfx = ["t1_", "t2_", "iq_", "mn_", "ph_", "fld_", "pwr_"];
+    const allCounts = [t.pri.length, t.sec.length, IQ_ITEMS.length, MN_ITEMS.length, (PH_MAP[role] || PH_MAP.batter).length, FLD_ITEMS.length, PWR_ITEMS.length];
+    allPfx.forEach((pfx, pi) => {
+        for (let i = 0; i < allCounts[pi]; i++) {
+            if (coachData[`${pfx}${i}`] > 0) { coachSum += coachData[`${pfx}${i}`]; coachN++; }
+            if (selfData?.[`${pfx}${i}`] > 0) { selfSum += selfData[`${pfx}${i}`]; selfN++; }
+        }
+    });
+    const sagi = (selfN > 0 && coachN > 0) ? Math.round((selfSum / selfN - coachSum / coachN) * 100) / 100 : null;
+    const sagiMin = parseFloat(c.sagi_aligned_min) || -0.5, sagiMax = parseFloat(c.sagi_aligned_max) || 0.5;
+    let sagiLabel = "—", sagiColor = B.g400;
+    if (sagi !== null) {
+        if (sagi > sagiMax) { sagiLabel = "Over-estimates"; sagiColor = B.amb; }
+        else if (sagi < sagiMin) { sagiLabel = "Under-estimates"; sagiColor = B.sky; }
+        else { sagiLabel = "Aligned ✓"; sagiColor = B.grn; }
+    }
+
+    // ═══ PILLAR 8: SELF-AWARENESS (SAGI as scored pillar) ═══
+    const saScore = calcSelfAwarenessScore(sagi, c);
+    const saCSS = saScore > 0 ? (ccm > 0 ? saScore * ccm : saScore) : 0;
+
+    // ═══ BUILD DOMAINS ARRAY (8 PILLARS) ═══
     const domains = [
-        { k: "t", l: "Technical", c: B.pk, css: techCSS, raw: techCoachMean, r: techAll, t: techTotal, wt: useW.t },
-        { k: "i", l: "Game Intelligence", c: B.sky, css: iqCSS, raw: iqAvg.a, r: iqAvg.r, t: iqAvg.t, wt: useW.i },
-        { k: "m", l: "Mental & Character", c: B.prp, css: mnCSS, raw: mnAvg.a, r: mnAvg.r, t: mnAvg.t, wt: useW.m },
-        { k: "h", l: "Physical & Athletic", c: B.nv, css: phCSS, raw: phAvg.a, r: phAvg.r, t: phAvg.t, wt: useW.h },
-        { k: "ph", l: "Phase Effectiveness", c: B.org, css: phaseCSS, raw: phaseMean, r: phaseN, t: phaseKeys.length, wt: useW.ph },
-        { k: "s", l: "Statistical Performance", c: B.grn, css: statResult.css, raw: statResult.score, r: statResult.eligible ? 1 : 0, t: 1, wt: useW.s, breakdown: statResult.breakdown },
+        { k: "tm", l: "Technical Mastery", c: B.pk, css: tmCSS, raw: techCoachMean, r: techAll, t: techTotal, wt: useW.tm },
+        { k: "te", l: "Tactical Execution", c: B.sky, css: teCSS, raw: iqAvg.a, r: iqAvg.r, t: iqAvg.t, wt: useW.te },
+        { k: "pc", l: "Physical Conditioning", c: B.nv, css: pcCSS, raw: phAvg.a, r: phAvg.r, t: phAvg.t, wt: useW.pc },
+        { k: "mr", l: "Mental Resilience", c: B.prp, css: mrCSS, raw: mnAvg.a, r: mnAvg.r, t: mnAvg.t, wt: useW.mr },
+        { k: "af", l: "Athletic Fielding", c: B.grn, css: afCSS, raw: fldAvg.a, r: fldAvg.r, t: fldAvg.t, wt: useW.af },
+        { k: "mi", l: "Match Impact", c: B.org, css: miCSS, raw: phaseMean, r: phaseN + (statResult.eligible ? 1 : 0), t: phaseKeys.length + 1, wt: useW.mi, breakdown: statResult.breakdown },
+        { k: "pw", l: "Power Hitting", c: B.pk, css: pwCSS, raw: pwrAvg.a || ((coachData?.t1_4 || 0) + (coachData?.t1_9 || 0)) / 2, r: pwrAvg.r || ([coachData?.t1_4, coachData?.t1_9].filter(v => v > 0).length), t: PWR_ITEMS.length, wt: useW.pw },
+        { k: "sa", l: "Self-Awareness", c: B.bl, css: saCSS, raw: saScore, r: sagi !== null ? 1 : 0, t: 1, wt: useW.sa },
     ];
 
     let pdiSum = 0, pdiWeightSum = 0;
@@ -425,25 +637,6 @@ export function calcPDI(coachData, selfData, role, ccmResult, dbWeights, constan
 
     let g = "—", gc = B.g400;
     if (pdi >= 4.25) { g = "ELITE"; gc = B.grn; } else if (pdi >= 3.50) { g = "ADVANCED"; gc = B.bl; } else if (pdi >= 2.75) { g = "COMPETENT"; gc = B.amb; } else if (pdi >= 2.00) { g = "EMERGING"; gc = B.pk; } else if (pdi >= 1.00) { g = "DEVELOPING"; gc = B.g600; } else if (pdi > 0) { g = "FOUNDATION"; gc = B.g400; }
-
-    // SAGI
-    let coachSum = 0, coachN = 0, selfSum = 0, selfN = 0;
-    const allPfx = ["t1_", "t2_", "iq_", "mn_", "ph_"];
-    const allCounts = [t.pri.length, t.sec.length, IQ_ITEMS.length, MN_ITEMS.length, (PH_MAP[role] || PH_MAP.batter).length];
-    allPfx.forEach((pfx, pi) => {
-        for (let i = 0; i < allCounts[pi]; i++) {
-            if (coachData[`${pfx}${i}`] > 0) { coachSum += coachData[`${pfx}${i}`]; coachN++; }
-            if (selfData?.[`${pfx}${i}`] > 0) { selfSum += selfData[`${pfx}${i}`]; selfN++; }
-        }
-    });
-    const sagi = (selfN > 0 && coachN > 0) ? Math.round((selfSum / selfN - coachSum / coachN) * 100) / 100 : null;
-    const sagiMin = parseFloat(c.sagi_aligned_min) || -0.5, sagiMax = parseFloat(c.sagi_aligned_max) || 0.5;
-    let sagiLabel = "—", sagiColor = B.g400;
-    if (sagi !== null) {
-        if (sagi > sagiMax) { sagiLabel = "Over-estimates"; sagiColor = B.amb; }
-        else if (sagi < sagiMin) { sagiLabel = "Under-estimates"; sagiColor = B.sky; }
-        else { sagiLabel = "Aligned ✓"; sagiColor = B.grn; }
-    }
 
     const trajThresh = parseFloat(c.trajectory_age_threshold) || 1.5;
     const trajectory = playerAge && ccmResult?.expectedAge && pdi >= 2.5 && (playerAge < (ccmResult.expectedAge - trajThresh));

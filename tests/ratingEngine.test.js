@@ -1,4 +1,4 @@
-// ═══ Rating Engine Unit Tests ═══
+// ═══ Rating Engine Unit Tests — 8-Pillar DNA System ═══
 import { describe, it, expect } from 'vitest';
 import {
     getAge,
@@ -12,6 +12,9 @@ import {
     calcPDI,
     calcCohortPercentile,
     calcAgeScore,
+    calcSelfAwarenessScore,
+    calcArchetypeDNA,
+    calcGrowthDelta,
     techItems,
     FALLBACK_STAT_BENCHMARKS,
     FALLBACK_SUB_WEIGHTS,
@@ -39,6 +42,14 @@ const MOCK_CONSTANTS = {
     age_score_ceiling: '1.25',
     potential_adj_enabled: 'true',
     potential_adj_factor: '0.05',
+    sagi_penalty_factor: '2.0',
+    sagi_floor_score: '1.0',
+    sagi_aligned_min: '-0.5',
+    sagi_aligned_max: '0.5',
+    coach_weight: '0.75',
+    player_weight: '0.25',
+    trajectory_age_threshold: '1.5',
+    pdi_scale_max: '5',
 };
 
 
@@ -243,8 +254,106 @@ describe('calcAgeScore', () => {
 });
 
 
-// ───────── calcPDI (integration) ─────────
-describe('calcPDI', () => {
+// ───────── calcSelfAwarenessScore ─────────
+describe('calcSelfAwarenessScore', () => {
+    it('returns 5.0 for perfectly aligned SAGI (0)', () => {
+        const score = calcSelfAwarenessScore(0, MOCK_CONSTANTS);
+        expect(score).toBe(5.0);
+    });
+
+    it('returns lower score for positive SAGI (over-estimation)', () => {
+        const score = calcSelfAwarenessScore(1.0, MOCK_CONSTANTS);
+        // 5 - |1.0| * 2.0 = 3.0
+        expect(score).toBe(3.0);
+    });
+
+    it('returns lower score for negative SAGI (under-estimation)', () => {
+        const score = calcSelfAwarenessScore(-1.0, MOCK_CONSTANTS);
+        // 5 - |-1.0| * 2.0 = 3.0
+        expect(score).toBe(3.0);
+    });
+
+    it('floors at 1.0 for extreme SAGI', () => {
+        const score = calcSelfAwarenessScore(2.5, MOCK_CONSTANTS);
+        // 5 - |2.5| * 2.0 = 0 -> clamped to 1.0
+        expect(score).toBe(1.0);
+    });
+
+    it('returns 0 for null SAGI', () => {
+        const score = calcSelfAwarenessScore(null, MOCK_CONSTANTS);
+        expect(score).toBe(0);
+    });
+
+    it('handles small alignment gap correctly', () => {
+        const score = calcSelfAwarenessScore(0.25, MOCK_CONSTANTS);
+        // 5 - 0.25 * 2.0 = 4.5
+        expect(score).toBe(4.5);
+    });
+});
+
+
+// ───────── calcArchetypeDNA ─────────
+describe('calcArchetypeDNA', () => {
+    it('returns bat and bowl percentage objects', () => {
+        const result = calcArchetypeDNA({}, null, null);
+        expect(result).toHaveProperty('bat');
+        expect(result).toHaveProperty('bowl');
+    });
+
+    it('bat percentages sum to 100 when signals exist', () => {
+        const result = calcArchetypeDNA(
+            { goToShots: ['Drive', 'Pull', 'Lofted Hit'], batPhases: ['pp'], batPosition: 'top' },
+            'firestarter',
+            null
+        );
+        const total = Object.values(result.bat).reduce((s, v) => s + v, 0);
+        expect(total).toBe(100);
+    });
+
+    it('coach-assigned archetype gets highest percentage', () => {
+        const result = calcArchetypeDNA({}, 'controller', null);
+        expect(result.bat.controller).toBeGreaterThan(0);
+        expect(result.primaryBat).toBe('controller');
+    });
+
+    it('shot selections influence archetype blend', () => {
+        const result360 = calcArchetypeDNA(
+            { goToShots: ['Ramp / Scoop', 'Switch Hit', 'Reverse Sweep', 'Lap / Paddle'] },
+            null,
+            null
+        );
+        // 360-style shots should push threesixty to be the highest or near highest
+        expect(result360.bat.threesixty).toBeGreaterThan(0);
+    });
+
+    it('phase preference influences archetype', () => {
+        const result = calcArchetypeDNA(
+            { batPhases: ['death'] },
+            null,
+            null
+        );
+        expect(result.bat.closer).toBeGreaterThan(0);
+    });
+
+    it('bowling archetype works independently', () => {
+        const result = calcArchetypeDNA({}, null, 'weapon');
+        expect(result.bowl.weapon).toBeGreaterThan(0);
+        expect(result.primaryBowl).toBe('weapon');
+    });
+
+    it('comfort vs spin boosts spindom archetype', () => {
+        const result = calcArchetypeDNA(
+            { comfortSpin: 5 },
+            null,
+            null
+        );
+        expect(result.bat.spindom).toBeGreaterThan(0);
+    });
+});
+
+
+// ───────── calcPDI (8-pillar integration) ─────────
+describe('calcPDI (8-pillar)', () => {
     it('returns valid PDI structure with all zero inputs', () => {
         const result = calcPDI(
             {}, // coachData
@@ -260,10 +369,28 @@ describe('calcPDI', () => {
         expect(typeof result.pdi).toBe('number');
     });
 
+    it('returns 8 domains in the output', () => {
+        const result = calcPDI(
+            {}, {}, 'batter',
+            { ccm: 0.5, cti: 0.5, arm: 1 },
+            null, null, [],
+        );
+        expect(result.domains).toHaveLength(8);
+    });
+
+    it('has correct 8-pillar domain keys', () => {
+        const result = calcPDI(
+            {}, {}, 'batter',
+            { ccm: 0.5, cti: 0.5, arm: 1 },
+            null, null, [],
+        );
+        const keys = result.domains.map(d => d.k);
+        expect(keys).toEqual(['tm', 'te', 'pc', 'mr', 'af', 'mi', 'pw', 'sa']);
+    });
+
     it('produces higher PDI with higher skill ratings', () => {
         const lowRatings = {};
         const highRatings = {};
-        // Set up some skill ratings
         for (let i = 0; i < 8; i++) {
             lowRatings[`t1_${i}`] = 1;
             highRatings[`t1_${i}`] = 5;
@@ -285,10 +412,70 @@ describe('calcPDI', () => {
         for (let i = 0; i < 8; i++) { ratings[`t1_${i}`] = 3; ratings[`iq_${i}`] = 3; ratings[`mn_${i}`] = 3; }
         const ccm = { ccm: 0.85, cti: 0.85, arm: 1 };
         const result = calcPDI(ratings, {}, 'batter', ccm, null, null, []);
-        // calcPDI returns { pdi, domains, g (grade label), gc (grade color), ... }
         expect(result.pdi).toBeGreaterThan(0);
         expect(typeof result.g).toBe('string');
-        expect(result.g).not.toBe('—'); // With ratings of 3, should get a real grade
+        expect(result.g).not.toBe('—');
+    });
+
+    it('Self-Awareness pillar has a score when SAGI is calculable', () => {
+        const coachData = {};
+        const selfData = {};
+        for (let i = 0; i < 6; i++) {
+            coachData[`iq_${i}`] = 3;
+            selfData[`iq_${i}`] = 4; // player rates higher → positive SAGI
+        }
+        const result = calcPDI(coachData, selfData, 'batter', { ccm: 0.5, cti: 0.5, arm: 1 }, null, MOCK_CONSTANTS, []);
+        const saDomain = result.domains.find(d => d.k === 'sa');
+        expect(saDomain.raw).toBeGreaterThan(0); // self-awareness score exists
+        expect(result.sagi).toBeGreaterThan(0);   // positive sagi (over-estimates)
+    });
+
+    it('Power Hitting pillar falls back to BAT_ITEMS[4,9] when no pwr_ data', () => {
+        const coachData = { t1_4: 4, t1_9: 3 }; // Power Hitting=4, Death-Over Hitting=3
+        const result = calcPDI(coachData, {}, 'batter', { ccm: 0.5, cti: 0.5, arm: 1 }, null, null, []);
+        const pwDomain = result.domains.find(d => d.k === 'pw');
+        expect(pwDomain.raw).toBeGreaterThan(0);
+    });
+
+    it('Athletic Fielding pillar scores from fld_ prefix', () => {
+        const coachData = { fld_0: 4, fld_1: 3, fld_2: 4, fld_3: 3, fld_4: 5 };
+        const result = calcPDI(coachData, {}, 'batter', { ccm: 0.5, cti: 0.5, arm: 1 }, null, null, []);
+        const afDomain = result.domains.find(d => d.k === 'af');
+        expect(afDomain.raw).toBeGreaterThan(0);
+        expect(afDomain.r).toBe(5);
+    });
+});
+
+
+// ───────── calcGrowthDelta ─────────
+describe('calcGrowthDelta', () => {
+    it('returns null when baseline or current is missing', () => {
+        expect(calcGrowthDelta(null, { domains: [] })).toBeNull();
+        expect(calcGrowthDelta({ domains: [] }, null)).toBeNull();
+    });
+
+    it('calculates correct per-pillar deltas', () => {
+        const baseline = {
+            pdi: 2.0,
+            sagi: 1.0,
+            domains: [
+                { k: 'tm', l: 'Technical Mastery', c: '#ff0', raw: 3.0 },
+                { k: 'te', l: 'Tactical Execution', c: '#0ff', raw: 2.5 },
+            ],
+        };
+        const current = {
+            pdi: 2.8,
+            sagi: 0.3,
+            domains: [
+                { k: 'tm', l: 'Technical Mastery', c: '#ff0', raw: 3.5 },
+                { k: 'te', l: 'Tactical Execution', c: '#0ff', raw: 3.2 },
+            ],
+        };
+        const result = calcGrowthDelta(baseline, current);
+        expect(result.pdiDelta).toBe(0.8);
+        expect(result.sagiDelta).toBe(-0.7);
+        expect(result.deltas.tm.delta).toBe(0.5);
+        expect(result.deltas.te.delta).toBe(0.7);
     });
 });
 
@@ -317,6 +504,43 @@ describe('calcCohortPercentile', () => {
 });
 
 
+// ───────── 8-Pillar Weights ─────────
+describe('8-Pillar Weights', () => {
+    it('FALLBACK_RW has 8 pillar keys for each role', () => {
+        const expectedKeys = ['tm', 'te', 'pc', 'mr', 'af', 'mi', 'pw', 'sa'];
+        Object.values(FALLBACK_RW).forEach(weights => {
+            expectedKeys.forEach(k => {
+                expect(weights).toHaveProperty(k);
+                expect(typeof weights[k]).toBe('number');
+            });
+        });
+    });
+
+    it('FALLBACK_RW weights sum to 1.0 for each role', () => {
+        Object.entries(FALLBACK_RW).forEach(([role, weights]) => {
+            const sum = Object.values(weights).reduce((s, v) => s + v, 0);
+            expect(sum).toBeCloseTo(1.0, 2);
+        });
+    });
+
+    it('FALLBACK_DOMAIN_WEIGHTS has 8 pillar keys per age tier', () => {
+        const expectedKeys = ['tm', 'te', 'mr', 'pc', 'af', 'mi', 'pw', 'sa'];
+        Object.values(FALLBACK_DOMAIN_WEIGHTS).forEach(weights => {
+            expectedKeys.forEach(k => {
+                expect(weights).toHaveProperty(k);
+            });
+        });
+    });
+
+    it('Tactical Execution is the highest weighted pillar for youth batters', () => {
+        const batter = FALLBACK_RW.batter;
+        expect(batter.te).toBeGreaterThanOrEqual(batter.tm); // te >= tm
+        const maxWeight = Math.max(...Object.values(batter));
+        expect(batter.te).toBe(maxWeight);
+    });
+});
+
+
 // ───────── Edge Cases ─────────
 describe('Edge Cases', () => {
     it('calcCCM handles undefined grades array', () => {
@@ -325,7 +549,6 @@ describe('Edge Cases', () => {
     });
 
     it('dAvg handles negative values by skipping them (only > 0 counted)', () => {
-        // Negative values are treated as non-rated (< 0 fails the > 0 check)
         const data = { x_0: -1, x_1: 3 };
         const result = dAvg(data, 'x_', 2);
         expect(result.a).toBe(3);
@@ -333,7 +556,6 @@ describe('Edge Cases', () => {
     });
 
     it('getAge uses 2026 as reference year', () => {
-        // Ensuring the engine's fixed reference year is 2026
         expect(getAge('01/01/2006')).toBe(20);
         expect(getAge('01/01/2016')).toBe(10);
     });

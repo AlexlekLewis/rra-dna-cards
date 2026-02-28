@@ -50,6 +50,99 @@ export const PH_MAP = {
     allrounder: ["Explosive Power", "Bowling Athleticism", "Core Balance", "Aerobic Fitness", "General Movement"],
 };
 
+// ═══ 8-PILLAR: NEW ITEMS ═══
+// TRAP 1: Existing items MUST NOT be reordered or removed. New items appended only.
+
+// Athletic Fielding — universal across ALL roles (prefixed fld_)
+export const FLD_ITEMS = [
+    "Ground Fielding",
+    "Catching Reliability",
+    "Close / Sharp Catching",
+    "Throwing Accuracy & Speed",
+    "Running Between Wickets",
+];
+
+// Power Hitting — includes 2 items that move FROM BAT_ITEMS indexes 4,9 + 2 new (prefixed pwr_)
+// Items at index 0,1 reference BAT_ITEMS[4] ("Power Hitting") and BAT_ITEMS[9] ("Death-Over Hitting")
+// Items at index 2,3 are new captures
+export const PWR_ITEMS = [
+    "Power Hitting",            // Mirrors BAT_ITEMS[4] — scored here for the Power Hitting pillar
+    "Death-Over Hitting",       // Mirrors BAT_ITEMS[9] — scored here for the Power Hitting pillar
+    "Lofted Hitting Confidence", // NEW: ability to clear the in-field on demand
+    "Scoring Arc / Range",       // NEW: 360° range, all-ground scoring
+];
+
+// ═══ 8-PILLAR: LABELS & KEYS ═══
+export const PILLAR_LABELS = [
+    { k: "tm", l: "Technical Mastery", c: B.pk },
+    { k: "te", l: "Tactical Execution", c: B.sky },
+    { k: "pc", l: "Physical Conditioning", c: B.nv },
+    { k: "mr", l: "Mental Resilience", c: B.prp },
+    { k: "af", l: "Athletic Fielding", c: B.grn },
+    { k: "mi", l: "Match Impact", c: B.org },
+    { k: "pw", l: "Power Hitting", c: B.pk },
+    { k: "sa", l: "Self-Awareness", c: B.bl },
+];
+
+// ═══ ARCHETYPE → PILLAR AFFINITY MAP ═══
+// Which pillars each archetype emphasises (used for archetype alignment multiplier)
+// Values sum to ~1.0 per archetype — the "expected profile shape"
+export const BAT_ARCH_AFFINITY = {
+    firestarter: { pw: 0.25, mi: 0.25, mr: 0.15, tm: 0.15, te: 0.10, af: 0.05, pc: 0.05, sa: 0 },
+    controller: { te: 0.25, sa: 0.20, tm: 0.15, mr: 0.15, mi: 0.10, af: 0.05, pw: 0.05, pc: 0.05 },
+    closer: { mr: 0.25, mi: 0.25, te: 0.15, tm: 0.15, sa: 0.10, pw: 0.05, af: 0.05, pc: 0 },
+    dual: { tm: 0.20, af: 0.20, mi: 0.15, te: 0.15, mr: 0.10, pc: 0.10, pw: 0.05, sa: 0.05 },
+    threesixty: { te: 0.25, pw: 0.20, tm: 0.15, mi: 0.15, sa: 0.10, mr: 0.05, af: 0.05, pc: 0.05 },
+    spindom: { te: 0.25, tm: 0.25, mi: 0.15, sa: 0.10, mr: 0.10, af: 0.05, pw: 0.05, pc: 0.05 },
+};
+
+export const BWL_ARCH_AFFINITY = {
+    hunter: { tm: 0.25, mi: 0.25, mr: 0.15, te: 0.10, pc: 0.10, pw: 0.05, af: 0.05, sa: 0.05 },
+    weapon: { tm: 0.15, mi: 0.15, mr: 0.15, te: 0.15, pc: 0.15, pw: 0.05, af: 0.10, sa: 0.10 },
+    squeeze: { te: 0.25, mr: 0.20, tm: 0.15, sa: 0.15, mi: 0.10, pc: 0.05, af: 0.05, pw: 0.05 },
+    developer: { sa: 0.20, te: 0.15, tm: 0.15, mr: 0.15, pc: 0.15, af: 0.10, mi: 0.05, pw: 0.05 },
+    death: { mr: 0.25, pw: 0.20, mi: 0.15, tm: 0.15, te: 0.10, pc: 0.05, af: 0.05, sa: 0.05 },
+    express: { pc: 0.25, mi: 0.20, tm: 0.15, mr: 0.15, pw: 0.10, te: 0.05, af: 0.05, sa: 0.05 },
+    containing: { te: 0.25, sa: 0.20, tm: 0.20, mr: 0.10, mi: 0.10, pc: 0.05, af: 0.05, pw: 0.05 },
+};
+
+// ═══ ARCHETYPE SIGNAL MAP — onboarding selections → archetype affinity ═══
+// Each signal adds weight to specific archetypes when present in the player's onboarding data
+export const BAT_SIGNAL_MAP = {
+    // go-to shot → archetype affinities
+    shots: {
+        "Drive": { firestarter: 0.5, controller: 0.3, threesixty: 0.2 },
+        "Pull": { firestarter: 0.5, threesixty: 0.3, closer: 0.2 },
+        "Cut": { controller: 0.4, threesixty: 0.3, firestarter: 0.3 },
+        "Sweep": { spindom: 0.5, controller: 0.3, threesixty: 0.2 },
+        "Reverse Sweep": { threesixty: 0.5, spindom: 0.3, firestarter: 0.2 },
+        "Ramp / Scoop": { threesixty: 0.6, firestarter: 0.3, closer: 0.1 },
+        "Switch Hit": { threesixty: 0.7, firestarter: 0.2, spindom: 0.1 },
+        "Flick": { controller: 0.4, threesixty: 0.3, closer: 0.3 },
+        "Lap / Paddle": { threesixty: 0.5, controller: 0.3, closer: 0.2 },
+        "Lofted Hit": { firestarter: 0.5, threesixty: 0.3, closer: 0.2 },
+        "Late Cut": { controller: 0.5, threesixty: 0.3, spindom: 0.2 },
+        "Upper Cut": { firestarter: 0.4, threesixty: 0.4, closer: 0.2 },
+    },
+    // batting phase preference → archetype affinities
+    phases: {
+        pp: { firestarter: 0.7, threesixty: 0.2, spindom: 0.1 },
+        mid: { controller: 0.5, spindom: 0.3, threesixty: 0.2 },
+        death: { closer: 0.6, firestarter: 0.2, dual: 0.2 },
+    },
+    // batting position → archetype affinities
+    positions: {
+        top: { firestarter: 0.5, controller: 0.3, threesixty: 0.2 },
+        middle: { controller: 0.4, closer: 0.3, threesixty: 0.3 },
+        lower: { closer: 0.5, dual: 0.3, firestarter: 0.2 },
+        tail: { dual: 0.5, closer: 0.3, controller: 0.2 },
+    },
+    // comfort vs spin (high = 4-5)
+    comfortSpin: { spindom: 0.5, controller: 0.3, threesixty: 0.2 },
+    // comfort vs pace (high = 4-5)
+    comfortPace: { firestarter: 0.4, closer: 0.3, threesixty: 0.3 },
+};
+
 export const PHASES = [{ id: "pp", nm: "POWERPLAY (1-6)" }, { id: "mid", nm: "MIDDLE (7-16)" }, { id: "death", nm: "DEATH (17-20)" }];
 
 // ═══ VOICE QUESTIONS (position-indexed — NEVER reorder, append only) ═══
