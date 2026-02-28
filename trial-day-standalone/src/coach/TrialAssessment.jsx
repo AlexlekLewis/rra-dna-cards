@@ -38,7 +38,7 @@ const GROUP_DEFS = [
 const TODAY = new Date().toISOString().slice(0, 10);
 
 export default function TrialAssessment({ session, players, onBack, getAge, getBracket, isAdmin, coachName, onLogout }) {
-    const [mode, setMode] = useState('rotations'); // 'assess' | 'setup' | 'planner' | 'attendance' | 'rotations'
+    const [mode, setMode] = useState('assess'); // 'assess' | 'setup' | 'planner' | 'attendance'
     const [selIdx, setSelIdx] = useState(0);
     const [trialData, setTrialData] = useState({});
 
@@ -400,40 +400,36 @@ export default function TrialAssessment({ session, players, onBack, getAge, getB
     }
 
     // ═══════════════════════════════════════════════════
-    // ROTATION BOARD MODE
+    // ROTATION BOARD HANDLERS
     // ═══════════════════════════════════════════════════
-    if (mode === 'rotations') {
-        const handleAssessFromRotations = (playerName) => {
-            const pObj = allPlayers.find(p => p.name === playerName);
-            if (!pObj) return;
+    const handleAssessFromRotations = (playerName) => {
+        const pObj = allPlayers.find(p => p.name === playerName);
+        if (!pObj) return;
 
-            let currentRoster = roster;
-            if (activeGroup && groupMap[pObj.id] !== activeGroup) {
-                setActiveGroup(null);
-                currentRoster = allPlayers;
-            }
+        let currentRoster = roster;
+        if (activeGroup && groupMap[pObj.id] !== activeGroup) {
+            setActiveGroup(null);
+            currentRoster = allPlayers;
+        }
 
-            const idx = currentRoster.findIndex(p => p.id === pObj.id);
-            if (idx >= 0) {
-                setSelIdx(idx);
-                setMode('assess');
-                window.scrollTo(0, 0);
-            }
-        };
-        const isPlayerDone = (pObj) => {
-            if (!pObj) return false;
-            const d = trialData[pObj.id];
-            if (!d) return false;
-            return !!d.overall_grade;
-        };
-
-        return <RotationBoard onAssessPlayer={handleAssessFromRotations} checkPlayerDone={isPlayerDone} allPlayers={allPlayers} />;
-    }
+        const idx = currentRoster.findIndex(p => p.id === pObj.id);
+        if (idx >= 0) {
+            setSelIdx(idx);
+            setMode('assess');
+            window.scrollTo(0, 0);
+        }
+    };
+    const isPlayerDone = (pObj) => {
+        if (!pObj) return false;
+        const d = trialData[pObj.id];
+        if (!d) return false;
+        return !!d.overall_grade;
+    };
 
     // ═══════════════════════════════════════════════════
-    // ASSESSMENT MODE — EMPTY STATE
+    // ASSESSMENT MODE — EMPTY STATE COMPONENT
     // ═══════════════════════════════════════════════════
-    if (roster.length === 0) {
+    const EmptyState = () => {
         const hasPlayers = allPlayers.length > 0;
         return (
             <div style={{ minHeight: '100vh', fontFamily: F, background: B.g50 }}>
@@ -466,7 +462,7 @@ export default function TrialAssessment({ session, players, onBack, getAge, getB
                 </div>
             </div>
         );
-    }
+    };
 
     // ═══ PLAYER LIST OVERLAY ═══
     const PlayerListPanel = () => (
@@ -535,353 +531,366 @@ export default function TrialAssessment({ session, players, onBack, getAge, getB
     const groupDef = playerGroup ? GROUP_DEFS.find(g => g.id === playerGroup) : null;
 
     return (
-        <div style={{ minHeight: '100vh', fontFamily: F, background: B.g50, paddingBottom: 70 }}>
-            {/* ═══ HEADER ═══ */}
-            <Hdr label="TRIAL DAY" onLogoClick={onBack} />
-
-            {/* ═══ COACH IDENTITY BAR ═══ */}
-            <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '6px 12px', background: B.nvD, borderBottom: `1px solid ${B.g200}`,
-            }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{
-                        width: 26, height: 26, borderRadius: '50%',
-                        background: `linear-gradient(135deg, ${B.pk}, ${B.bl})`,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 11, fontWeight: 900, color: B.w, fontFamily: F,
-                    }}>{(coachName || '?')[0]}</div>
-                    <div>
-                        <div style={{ fontSize: 11, fontWeight: 800, color: B.w, fontFamily: F }}>{coachName || 'Coach'}</div>
-                        <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.5)', fontFamily: F, fontWeight: 600 }}>
-                            {isAdmin ? '⭐ Super Admin' : 'Coach'}
-                        </div>
-                    </div>
-                </div>
-                <div style={{ display: 'flex', gap: 6 }}>
-                    {undoStack.length > 0 && (
-                        <button onClick={handleUndo} style={{
-                            padding: '5px 10px', borderRadius: 8, border: `1px solid ${B.amb}`,
-                            background: `${B.amb}20`, color: B.amb, fontSize: 10, fontWeight: 700,
-                            fontFamily: F, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
-                        }}>↩ Undo ({undoStack.length})</button>
-                    )}
-                    <button onClick={onLogout || onBack} style={{
-                        padding: '5px 10px', borderRadius: 8, border: `1px solid ${B.red}60`,
-                        background: `${B.red}15`, color: B.red, fontSize: 10, fontWeight: 700,
-                        fontFamily: F, cursor: 'pointer',
-                    }}>Sign Out</button>
-                </div>
+        <>
+            <div style={{ display: mode === 'rotations' ? 'block' : 'none' }}>
+                <RotationBoard onAssessPlayer={handleAssessFromRotations} checkPlayerDone={isPlayerDone} allPlayers={allPlayers} />
             </div>
 
-            {/* ═══ TOP APP NAVIGATION ═══ */}
-            <div style={{
-                display: 'flex', background: B.w, borderBottom: `1px solid ${B.g200}`,
-                padding: '4px 6px', gap: 4, overflowX: 'auto'
-            }}>
-                <button onClick={() => setMode('attendance')}
-                    style={{
-                        flex: 1, padding: '8px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: F,
-                        fontSize: 10, fontWeight: 700, background: `${B.grn}15`, color: B.grn, whiteSpace: 'nowrap',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    }}
-                >✅ Attendance</button>
-                <button onClick={() => setMode('rotations')}
-                    style={{
-                        flex: 1, padding: '8px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: F,
-                        fontSize: 10, fontWeight: 700, background: `${B.grn}15`, color: B.grn, whiteSpace: 'nowrap',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-                    }}
-                >🔄 Rotations</button>
-            </div>
+            <div style={{ display: mode !== 'rotations' ? 'block' : 'none' }}>
+                {roster.length === 0 ? (
+                    <EmptyState />
+                ) : (
+                    <div style={{ minHeight: '100vh', fontFamily: F, background: B.g50, paddingBottom: 70 }}>
+                        <PlayerListPanel />
+                        {/* ═══ HEADER ═══ */}
+                        <Hdr label="TRIAL DAY" onLogoClick={onBack} />
 
-            {/* ═══ GROUP FILTER TABS ═══ */}
-            <div style={{
-                display: 'flex', background: B.w, borderBottom: `1px solid ${B.g200}`,
-                overflowX: 'auto', gap: 0,
-            }}>
-                <button onClick={() => setActiveGroup(null)}
-                    style={{
-                        flex: 1, padding: '8px 4px', border: 'none', cursor: 'pointer', fontFamily: F,
-                        fontSize: 10, fontWeight: activeGroup === null ? 800 : 600,
-                        background: activeGroup === null ? `${B.org}10` : 'transparent',
-                        color: activeGroup === null ? B.org : B.g400,
-                        borderBottom: activeGroup === null ? `2px solid ${B.org}` : '2px solid transparent',
-                        transition: 'all 0.2s', whiteSpace: 'nowrap',
-                    }}
-                >All ({allPlayers.length})</button>
-                {GROUP_DEFS.map(g => {
-                    const cnt = allPlayers.filter(p => groupMap[p.id] === g.id).length;
-                    const isActive = activeGroup === g.id;
-                    return (
-                        <button key={g.id} onClick={() => setActiveGroup(isActive ? null : g.id)}
-                            style={{
-                                flex: 1, padding: '8px 4px', border: 'none', cursor: 'pointer', fontFamily: F,
-                                fontSize: 10, fontWeight: isActive ? 800 : 600,
-                                background: isActive ? `${g.color}10` : 'transparent',
-                                color: isActive ? g.color : B.g400,
-                                borderBottom: isActive ? `2px solid ${g.color}` : '2px solid transparent',
-                                transition: 'all 0.2s', whiteSpace: 'nowrap',
-                            }}
-                        >{g.icon} {g.label} ({cnt})</button>
-                    );
-                })}
-            </div>
-
-
-
-            {/* ═══ PROGRESS BAR ═══ */}
-            <div style={{
-                background: `linear-gradient(135deg,${B.org}15,${B.amb}15)`,
-                padding: '8px 12px',
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                borderBottom: `1px solid ${B.g200}`,
-            }}>
-                <button onClick={() => setShowList(true)} style={{
-                    background: 'none', border: `1px solid ${B.org}`, borderRadius: 6,
-                    padding: '4px 10px', fontSize: 10, fontWeight: 700, color: B.org,
-                    fontFamily: F, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
-                }}>
-                    ☰ Players
-                </button>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <div style={{ fontSize: 11, fontWeight: 800, color: B.nvD, fontFamily: F }}>
-                        {completedInGroup}/{roster.length}
-                    </div>
-                    <div style={{
-                        width: 80, height: 6, borderRadius: 3, background: B.g200, overflow: 'hidden',
-                    }}>
+                        {/* ═══ COACH IDENTITY BAR ═══ */}
                         <div style={{
-                            width: `${roster.length > 0 ? (completedInGroup / roster.length) * 100 : 0}%`,
-                            height: '100%', borderRadius: 3,
-                            background: `linear-gradient(135deg,${B.org},${B.amb})`,
-                            transition: 'width 0.5s',
-                        }} />
-                    </div>
-                    {saving && <div style={{ fontSize: 9, color: B.amb, fontFamily: F, fontWeight: 600 }}>Saving...</div>}
-                    {!saving && saveError && <div style={{ fontSize: 9, color: B.red, fontFamily: F, fontWeight: 700 }}>⚠️ {saveError}</div>}
-                    {!saving && !saveError && lastSaved && <div style={{ fontSize: 9, color: B.grn, fontFamily: F, fontWeight: 600 }}>✓ Saved</div>}
-                </div>
-            </div>
-
-            {/* ═══ PLAYER HEADER ═══ */}
-            {sp && (
-                <div style={{
-                    display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
-                    background: B.w, borderBottom: `1px solid ${B.g200}`,
-                    ...(_isDesktop ? { maxWidth: 780, margin: '0 auto' } : {}),
-                }}>
-                    <div style={{
-                        width: 38, height: 38, borderRadius: '50%', ...sGrad,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                    }}>
-                        <span style={{ color: B.w, fontSize: 13, fontWeight: 800, fontFamily: F }}>{ini}</span>
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <div style={{ fontSize: 15, fontWeight: 800, color: B.nvD, fontFamily: F }}>{sp.name}</div>
-                            {groupDef && (
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            padding: '6px 12px', background: B.nvD, borderBottom: `1px solid ${B.g200}`,
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                                 <div style={{
-                                    fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
-                                    background: `${groupDef.color}20`, color: groupDef.color, fontFamily: F,
-                                }}>{groupDef.label}</div>
-                            )}
+                                    width: 26, height: 26, borderRadius: '50%',
+                                    background: `linear-gradient(135deg, ${B.pk}, ${B.bl})`,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                    fontSize: 11, fontWeight: 900, color: B.w, fontFamily: F,
+                                }}>{(coachName || '?')[0]}</div>
+                                <div>
+                                    <div style={{ fontSize: 11, fontWeight: 800, color: B.w, fontFamily: F }}>{coachName || 'Coach'}</div>
+                                    <div style={{ fontSize: 8, color: 'rgba(255,255,255,0.5)', fontFamily: F, fontWeight: 600 }}>
+                                        {isAdmin ? '⭐ Super Admin' : 'Coach'}
+                                    </div>
+                                </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                                {undoStack.length > 0 && (
+                                    <button onClick={handleUndo} style={{
+                                        padding: '5px 10px', borderRadius: 8, border: `1px solid ${B.amb}`,
+                                        background: `${B.amb}20`, color: B.amb, fontSize: 10, fontWeight: 700,
+                                        fontFamily: F, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                                    }}>↩ Undo ({undoStack.length})</button>
+                                )}
+                                <button onClick={onLogout || onBack} style={{
+                                    padding: '5px 10px', borderRadius: 8, border: `1px solid ${B.red}60`,
+                                    background: `${B.red}15`, color: B.red, fontSize: 10, fontWeight: 700,
+                                    fontFamily: F, cursor: 'pointer',
+                                }}>Sign Out</button>
+                            </div>
                         </div>
-                        <div style={{ fontSize: 10, color: B.g400, fontFamily: F }}>{age}yo • {bracket} • {ro?.label || '?'} • {sp.club || ''}</div>
-                    </div>
-                    <div style={{ fontSize: 10, fontWeight: 700, fontFamily: F, color: B.g400 }}>
-                        {selIdx + 1}/{roster.length}
-                    </div>
-                </div>
-            )}
 
-            {/* ═══ ASSESSMENT BODY ═══ */}
-            <div style={{ padding: '0 12px', ...dkWrap }}>
-
-                {/* ═══ OVERALL GRADE ═══ */}
-                <div style={{ marginTop: 16 }}>
-                    <div style={{
-                        fontSize: 10, fontWeight: 800, color: B.nv, fontFamily: F,
-                        letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6,
-                        display: 'flex', alignItems: 'center', gap: 6,
-                    }}>
-                        <div style={{ width: 3, height: 14, borderRadius: 2, background: B.nv }} />
-                        OVERALL GRADE
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8, marginBottom: 12 }}>
-                        {OVERALL_GRADES.map(opt => (
-                            <button key={opt.id} onClick={() => updateField('overall_grade', cd.overall_grade === opt.id ? null : opt.id)}
+                        {/* ═══ TOP APP NAVIGATION ═══ */}
+                        <div style={{
+                            display: 'flex', background: B.w, borderBottom: `1px solid ${B.g200}`,
+                            padding: '4px 6px', gap: 4, overflowX: 'auto'
+                        }}>
+                            <button onClick={() => setMode('attendance')}
                                 style={{
-                                    padding: '12px 14px', borderRadius: 10, border: 'none',
-                                    background: cd.overall_grade === opt.id ? opt.color : B.g100,
-                                    color: cd.overall_grade === opt.id ? (opt.id === 'silver' ? '#333' : B.w) : B.g600,
-                                    fontSize: 14, fontWeight: 800, fontFamily: F,
-                                    cursor: 'pointer', transition: 'all 0.15s',
-                                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                                    boxShadow: cd.overall_grade === opt.id ? `0 4px 12px ${opt.color}40` : 'none',
+                                    flex: 1, padding: '8px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: F,
+                                    fontSize: 10, fontWeight: 700, background: `${B.grn}15`, color: B.grn, whiteSpace: 'nowrap',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                                }}
+                            >✅ Attendance</button>
+                            <button onClick={() => setMode('rotations')}
+                                style={{
+                                    flex: 1, padding: '8px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: F,
+                                    fontSize: 10, fontWeight: 700, background: `${B.grn}15`, color: B.grn, whiteSpace: 'nowrap',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                                }}
+                            >🔄 Rotations</button>
+                        </div>
+
+                        {/* ═══ GROUP FILTER TABS ═══ */}
+                        <div style={{
+                            display: 'flex', background: B.w, borderBottom: `1px solid ${B.g200}`,
+                            overflowX: 'auto', gap: 0,
+                        }}>
+                            <button onClick={() => setActiveGroup(null)}
+                                style={{
+                                    flex: 1, padding: '8px 4px', border: 'none', cursor: 'pointer', fontFamily: F,
+                                    fontSize: 10, fontWeight: activeGroup === null ? 800 : 600,
+                                    background: activeGroup === null ? `${B.org}10` : 'transparent',
+                                    color: activeGroup === null ? B.org : B.g400,
+                                    borderBottom: activeGroup === null ? `2px solid ${B.org}` : '2px solid transparent',
+                                    transition: 'all 0.2s', whiteSpace: 'nowrap',
+                                }}
+                            >All ({allPlayers.length})</button>
+                            {GROUP_DEFS.map(g => {
+                                const cnt = allPlayers.filter(p => groupMap[p.id] === g.id).length;
+                                const isActive = activeGroup === g.id;
+                                return (
+                                    <button key={g.id} onClick={() => setActiveGroup(isActive ? null : g.id)}
+                                        style={{
+                                            flex: 1, padding: '8px 4px', border: 'none', cursor: 'pointer', fontFamily: F,
+                                            fontSize: 10, fontWeight: isActive ? 800 : 600,
+                                            background: isActive ? `${g.color}10` : 'transparent',
+                                            color: isActive ? g.color : B.g400,
+                                            borderBottom: isActive ? `2px solid ${g.color}` : '2px solid transparent',
+                                            transition: 'all 0.2s', whiteSpace: 'nowrap',
+                                        }}
+                                    >{g.icon} {g.label} ({cnt})</button>
+                                );
+                            })}
+                        </div>
+
+
+
+                        {/* ═══ PROGRESS BAR ═══ */}
+                        <div style={{
+                            background: `linear-gradient(135deg,${B.org}15,${B.amb}15)`,
+                            padding: '8px 12px',
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                            borderBottom: `1px solid ${B.g200}`,
+                        }}>
+                            <button onClick={() => setShowList(true)} style={{
+                                background: 'none', border: `1px solid ${B.org}`, borderRadius: 6,
+                                padding: '4px 10px', fontSize: 10, fontWeight: 700, color: B.org,
+                                fontFamily: F, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                            }}>
+                                ☰ Players
+                            </button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                <div style={{ fontSize: 11, fontWeight: 800, color: B.nvD, fontFamily: F }}>
+                                    {completedInGroup}/{roster.length}
+                                </div>
+                                <div style={{
+                                    width: 80, height: 6, borderRadius: 3, background: B.g200, overflow: 'hidden',
+                                }}>
+                                    <div style={{
+                                        width: `${roster.length > 0 ? (completedInGroup / roster.length) * 100 : 0}%`,
+                                        height: '100%', borderRadius: 3,
+                                        background: `linear-gradient(135deg,${B.org},${B.amb})`,
+                                        transition: 'width 0.5s',
+                                    }} />
+                                </div>
+                                {saving && <div style={{ fontSize: 9, color: B.amb, fontFamily: F, fontWeight: 600 }}>Saving...</div>}
+                                {!saving && saveError && <div style={{ fontSize: 9, color: B.red, fontFamily: F, fontWeight: 700 }}>⚠️ {saveError}</div>}
+                                {!saving && !saveError && lastSaved && <div style={{ fontSize: 9, color: B.grn, fontFamily: F, fontWeight: 600 }}>✓ Saved</div>}
+                            </div>
+                        </div>
+
+                        {/* ═══ PLAYER HEADER ═══ */}
+                        {sp && (
+                            <div style={{
+                                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                                background: B.w, borderBottom: `1px solid ${B.g200}`,
+                                ...(_isDesktop ? { maxWidth: 780, margin: '0 auto' } : {}),
+                            }}>
+                                <div style={{
+                                    width: 38, height: 38, borderRadius: '50%', ...sGrad,
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                                }}>
+                                    <span style={{ color: B.w, fontSize: 13, fontWeight: 800, fontFamily: F }}>{ini}</span>
+                                </div>
+                                <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <div style={{ fontSize: 15, fontWeight: 800, color: B.nvD, fontFamily: F }}>{sp.name}</div>
+                                        {groupDef && (
+                                            <div style={{
+                                                fontSize: 8, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
+                                                background: `${groupDef.color}20`, color: groupDef.color, fontFamily: F,
+                                            }}>{groupDef.label}</div>
+                                        )}
+                                    </div>
+                                    <div style={{ fontSize: 10, color: B.g400, fontFamily: F }}>{age}yo • {bracket} • {ro?.label || '?'} • {sp.club || ''}</div>
+                                </div>
+                                <div style={{ fontSize: 10, fontWeight: 700, fontFamily: F, color: B.g400 }}>
+                                    {selIdx + 1}/{roster.length}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* ═══ ASSESSMENT BODY ═══ */}
+                        <div style={{ padding: '0 12px', ...dkWrap }}>
+
+                            {/* ═══ OVERALL GRADE ═══ */}
+                            <div style={{ marginTop: 16 }}>
+                                <div style={{
+                                    fontSize: 10, fontWeight: 800, color: B.nv, fontFamily: F,
+                                    letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6,
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                }}>
+                                    <div style={{ width: 3, height: 14, borderRadius: 2, background: B.nv }} />
+                                    OVERALL GRADE
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: 8, marginBottom: 12 }}>
+                                    {OVERALL_GRADES.map(opt => (
+                                        <button key={opt.id} onClick={() => updateField('overall_grade', cd.overall_grade === opt.id ? null : opt.id)}
+                                            style={{
+                                                padding: '12px 14px', borderRadius: 10, border: 'none',
+                                                background: cd.overall_grade === opt.id ? opt.color : B.g100,
+                                                color: cd.overall_grade === opt.id ? (opt.id === 'silver' ? '#333' : B.w) : B.g600,
+                                                fontSize: 14, fontWeight: 800, fontFamily: F,
+                                                cursor: 'pointer', transition: 'all 0.15s',
+                                                display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                                                boxShadow: cd.overall_grade === opt.id ? `0 4px 12px ${opt.color}40` : 'none',
+                                            }}
+                                        >
+                                            <span>{opt.title}</span>
+                                            <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.9 }}>{opt.desc}</span>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* ═══ ARCHETYPE QUICK-PICK ═══ */}
+                            <div style={{ marginTop: 16 }}>
+                                <div style={{
+                                    fontSize: 10, fontWeight: 800, color: B.pk, fontFamily: F,
+                                    letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6,
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                }}>
+                                    <div style={{ width: 3, height: 14, borderRadius: 2, background: B.pk }} />
+                                    BATTING ARCHETYPE
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                                    {BAT_ARCH.map(a => (
+                                        <button key={a.id} onClick={() => updateField('batA', cd.batA === a.id ? null : a.id)}
+                                            style={{
+                                                padding: '7px 12px', borderRadius: 8, border: 'none',
+                                                background: cd.batA === a.id ? a.c : B.g100,
+                                                color: cd.batA === a.id ? B.w : B.g600,
+                                                fontSize: 10, fontWeight: 700, fontFamily: F,
+                                                cursor: 'pointer', transition: 'all 0.15s',
+                                                boxShadow: cd.batA === a.id ? `0 2px 8px ${a.c}40` : 'none',
+                                            }}
+                                        >{a.nm}</button>
+                                    ))}
+                                </div>
+
+                                <div style={{
+                                    fontSize: 10, fontWeight: 800, color: B.bl, fontFamily: F,
+                                    letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6,
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                }}>
+                                    <div style={{ width: 3, height: 14, borderRadius: 2, background: B.bl }} />
+                                    BOWLING TYPE & ARCHETYPE
+                                </div>
+                                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                                    {BOWLING_TYPES.map(bt => (
+                                        <button key={bt.id} onClick={() => updateField('bowling_type', cd.bowling_type === bt.id ? null : bt.id)}
+                                            style={{
+                                                flex: 1, padding: '8px 12px', borderRadius: 8, border: 'none',
+                                                background: cd.bowling_type === bt.id ? bt.color : B.g100,
+                                                color: cd.bowling_type === bt.id ? B.w : B.g600,
+                                                fontSize: 11, fontWeight: 700, fontFamily: F, cursor: 'pointer',
+                                            }}
+                                        >{bt.title}</button>
+                                    ))}
+                                </div>
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                                    {BWL_ARCH.map(a => (
+                                        <button key={a.id} onClick={() => updateField('bwlA', cd.bwlA === a.id ? null : a.id)}
+                                            style={{
+                                                padding: '7px 12px', borderRadius: 8, border: 'none',
+                                                background: cd.bwlA === a.id ? a.c : B.g100,
+                                                color: cd.bwlA === a.id ? B.w : B.g600,
+                                                fontSize: 10, fontWeight: 700, fontFamily: F,
+                                                cursor: 'pointer', transition: 'all 0.15s',
+                                                boxShadow: cd.bwlA === a.id ? `0 2px 8px ${a.c}40` : 'none',
+                                            }}
+                                        >{a.nm}</button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* ═══ SQUAD RECOMMENDATION ═══ */}
+                            <div style={{ marginTop: 16 }}>
+                                <div style={{
+                                    fontSize: 10, fontWeight: 800, color: B.nv, fontFamily: F,
+                                    letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6,
+                                    display: 'flex', alignItems: 'center', gap: 6,
+                                }}>
+                                    <div style={{ width: 3, height: 14, borderRadius: 2, background: B.nv }} />
+                                    SQUAD RECOMMENDATION
+                                </div>
+                                <div style={{ display: 'flex', gap: 8 }}>
+                                    {SQUAD_OPTIONS.map(opt => (
+                                        <button key={opt.id} onClick={() => updateField('squad_rec', cd.squad_rec === opt.id ? null : opt.id)}
+                                            style={{
+                                                flex: 1, padding: '12px 8px', borderRadius: 10, border: 'none',
+                                                background: cd.squad_rec === opt.id ? opt.color : B.g100,
+                                                color: cd.squad_rec === opt.id ? B.w : B.g600,
+                                                fontSize: 11, fontWeight: 700, fontFamily: F,
+                                                cursor: 'pointer', transition: 'all 0.15s',
+                                                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
+                                                boxShadow: cd.squad_rec === opt.id ? `0 2px 12px ${opt.color}30` : 'none',
+                                            }}
+                                        >
+                                            <span style={{ fontSize: 18 }}>{opt.icon}</span>
+                                            {opt.label}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* ═══ QUICK NOTE ═══ */}
+                            <div style={{ marginTop: 12, marginBottom: 16 }}>
+                                <input
+                                    type="text"
+                                    value={cd.quick_note || ''}
+                                    onChange={e => updateField('quick_note', e.target.value)}
+                                    placeholder="Quick note about this player..."
+                                    style={{
+                                        width: '100%', padding: '12px 14px', borderRadius: 10,
+                                        border: `1.5px solid ${B.g200}`, background: B.w,
+                                        fontSize: 12, fontWeight: 500, fontFamily: F, color: B.g800,
+                                        outline: 'none', boxSizing: 'border-box',
+                                    }}
+                                />
+                            </div>
+                        </div>
+
+                        {/* ═══ FIXED BOTTOM NAV ═══ */}
+                        <div style={{
+                            position: 'fixed', bottom: 0, left: 0, right: 0,
+                            background: B.w, borderTop: `1px solid ${B.g200}`,
+                            padding: '8px 12px', display: 'flex', justifyContent: 'space-between',
+                            alignItems: 'center', zIndex: 100,
+                            ...(_isDesktop ? { maxWidth: 780, margin: '0 auto', left: '50%', transform: 'translateX(-50%)' } : {}),
+                        }}>
+                            <button
+                                onClick={() => { if (selIdx > 0) goTo(selIdx - 1); else onBack(); }}
+                                style={{
+                                    padding: '10px 18px', borderRadius: 8,
+                                    border: `1px solid ${B.g200}`, background: 'transparent',
+                                    fontSize: 12, fontWeight: 600, color: B.g600,
+                                    cursor: 'pointer', fontFamily: F,
                                 }}
                             >
-                                <span>{opt.title}</span>
-                                <span style={{ fontSize: 10, fontWeight: 600, opacity: 0.9 }}>{opt.desc}</span>
+                                ← {selIdx > 0 ? 'Prev' : 'Exit'}
                             </button>
-                        ))}
-                    </div>
-                </div>
 
-                {/* ═══ ARCHETYPE QUICK-PICK ═══ */}
-                <div style={{ marginTop: 16 }}>
-                    <div style={{
-                        fontSize: 10, fontWeight: 800, color: B.pk, fontFamily: F,
-                        letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6,
-                        display: 'flex', alignItems: 'center', gap: 6,
-                    }}>
-                        <div style={{ width: 3, height: 14, borderRadius: 2, background: B.pk }} />
-                        BATTING ARCHETYPE
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
-                        {BAT_ARCH.map(a => (
-                            <button key={a.id} onClick={() => updateField('batA', cd.batA === a.id ? null : a.id)}
-                                style={{
-                                    padding: '7px 12px', borderRadius: 8, border: 'none',
-                                    background: cd.batA === a.id ? a.c : B.g100,
-                                    color: cd.batA === a.id ? B.w : B.g600,
-                                    fontSize: 10, fontWeight: 700, fontFamily: F,
-                                    cursor: 'pointer', transition: 'all 0.15s',
-                                    boxShadow: cd.batA === a.id ? `0 2px 8px ${a.c}40` : 'none',
-                                }}
-                            >{a.nm}</button>
-                        ))}
-                    </div>
+                            <div style={{ textAlign: 'center' }}>
+                                <div style={{ fontSize: 10, fontWeight: 800, color: B.nvD, fontFamily: F }}>{selIdx + 1} / {roster.length}</div>
+                                <div style={{ fontSize: 8, color: B.g400, fontFamily: F }}>{sp?.name?.split(' ')[0]}</div>
+                            </div>
 
-                    <div style={{
-                        fontSize: 10, fontWeight: 800, color: B.bl, fontFamily: F,
-                        letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6,
-                        display: 'flex', alignItems: 'center', gap: 6,
-                    }}>
-                        <div style={{ width: 3, height: 14, borderRadius: 2, background: B.bl }} />
-                        BOWLING TYPE & ARCHETYPE
-                    </div>
-                    <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-                        {BOWLING_TYPES.map(bt => (
-                            <button key={bt.id} onClick={() => updateField('bowling_type', cd.bowling_type === bt.id ? null : bt.id)}
+                            <button
+                                onClick={() => { if (selIdx < roster.length - 1) goTo(selIdx + 1); }}
+                                disabled={selIdx >= roster.length - 1}
                                 style={{
-                                    flex: 1, padding: '8px 12px', borderRadius: 8, border: 'none',
-                                    background: cd.bowling_type === bt.id ? bt.color : B.g100,
-                                    color: cd.bowling_type === bt.id ? B.w : B.g600,
-                                    fontSize: 11, fontWeight: 700, fontFamily: F, cursor: 'pointer',
-                                }}
-                            >{bt.title}</button>
-                        ))}
-                    </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-                        {BWL_ARCH.map(a => (
-                            <button key={a.id} onClick={() => updateField('bwlA', cd.bwlA === a.id ? null : a.id)}
-                                style={{
-                                    padding: '7px 12px', borderRadius: 8, border: 'none',
-                                    background: cd.bwlA === a.id ? a.c : B.g100,
-                                    color: cd.bwlA === a.id ? B.w : B.g600,
-                                    fontSize: 10, fontWeight: 700, fontFamily: F,
-                                    cursor: 'pointer', transition: 'all 0.15s',
-                                    boxShadow: cd.bwlA === a.id ? `0 2px 8px ${a.c}40` : 'none',
-                                }}
-                            >{a.nm}</button>
-                        ))}
-                    </div>
-                </div>
-
-                {/* ═══ SQUAD RECOMMENDATION ═══ */}
-                <div style={{ marginTop: 16 }}>
-                    <div style={{
-                        fontSize: 10, fontWeight: 800, color: B.nv, fontFamily: F,
-                        letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 6,
-                        display: 'flex', alignItems: 'center', gap: 6,
-                    }}>
-                        <div style={{ width: 3, height: 14, borderRadius: 2, background: B.nv }} />
-                        SQUAD RECOMMENDATION
-                    </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                        {SQUAD_OPTIONS.map(opt => (
-                            <button key={opt.id} onClick={() => updateField('squad_rec', cd.squad_rec === opt.id ? null : opt.id)}
-                                style={{
-                                    flex: 1, padding: '12px 8px', borderRadius: 10, border: 'none',
-                                    background: cd.squad_rec === opt.id ? opt.color : B.g100,
-                                    color: cd.squad_rec === opt.id ? B.w : B.g600,
-                                    fontSize: 11, fontWeight: 700, fontFamily: F,
-                                    cursor: 'pointer', transition: 'all 0.15s',
-                                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4,
-                                    boxShadow: cd.squad_rec === opt.id ? `0 2px 12px ${opt.color}30` : 'none',
+                                    padding: '10px 18px', borderRadius: 8,
+                                    border: 'none',
+                                    background: selIdx < roster.length - 1
+                                        ? `linear-gradient(135deg,${B.org},${B.amb})`
+                                        : B.g200,
+                                    fontSize: 12, fontWeight: 700,
+                                    color: selIdx < roster.length - 1 ? B.w : B.g400,
+                                    cursor: selIdx < roster.length - 1 ? 'pointer' : 'default',
+                                    fontFamily: F,
                                 }}
                             >
-                                <span style={{ fontSize: 18 }}>{opt.icon}</span>
-                                {opt.label}
+                                Next →
                             </button>
-                        ))}
+                        </div>
+
+                        {/* Player list overlay */}
+                        <PlayerListPanel />
                     </div>
-                </div>
-
-                {/* ═══ QUICK NOTE ═══ */}
-                <div style={{ marginTop: 12, marginBottom: 16 }}>
-                    <input
-                        type="text"
-                        value={cd.quick_note || ''}
-                        onChange={e => updateField('quick_note', e.target.value)}
-                        placeholder="Quick note about this player..."
-                        style={{
-                            width: '100%', padding: '12px 14px', borderRadius: 10,
-                            border: `1.5px solid ${B.g200}`, background: B.w,
-                            fontSize: 12, fontWeight: 500, fontFamily: F, color: B.g800,
-                            outline: 'none', boxSizing: 'border-box',
-                        }}
-                    />
-                </div>
+                )}
             </div>
-
-            {/* ═══ FIXED BOTTOM NAV ═══ */}
-            <div style={{
-                position: 'fixed', bottom: 0, left: 0, right: 0,
-                background: B.w, borderTop: `1px solid ${B.g200}`,
-                padding: '8px 12px', display: 'flex', justifyContent: 'space-between',
-                alignItems: 'center', zIndex: 100,
-                ...(_isDesktop ? { maxWidth: 780, margin: '0 auto', left: '50%', transform: 'translateX(-50%)' } : {}),
-            }}>
-                <button
-                    onClick={() => { if (selIdx > 0) goTo(selIdx - 1); else onBack(); }}
-                    style={{
-                        padding: '10px 18px', borderRadius: 8,
-                        border: `1px solid ${B.g200}`, background: 'transparent',
-                        fontSize: 12, fontWeight: 600, color: B.g600,
-                        cursor: 'pointer', fontFamily: F,
-                    }}
-                >
-                    ← {selIdx > 0 ? 'Prev' : 'Exit'}
-                </button>
-
-                <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontSize: 10, fontWeight: 800, color: B.nvD, fontFamily: F }}>{selIdx + 1} / {roster.length}</div>
-                    <div style={{ fontSize: 8, color: B.g400, fontFamily: F }}>{sp?.name?.split(' ')[0]}</div>
-                </div>
-
-                <button
-                    onClick={() => { if (selIdx < roster.length - 1) goTo(selIdx + 1); }}
-                    disabled={selIdx >= roster.length - 1}
-                    style={{
-                        padding: '10px 18px', borderRadius: 8,
-                        border: 'none',
-                        background: selIdx < roster.length - 1
-                            ? `linear-gradient(135deg,${B.org},${B.amb})`
-                            : B.g200,
-                        fontSize: 12, fontWeight: 700,
-                        color: selIdx < roster.length - 1 ? B.w : B.g400,
-                        cursor: selIdx < roster.length - 1 ? 'pointer' : 'default',
-                        fontFamily: F,
-                    }}
-                >
-                    Next →
-                </button>
-            </div>
-
-            {/* Player list overlay */}
-            <PlayerListPanel />
-        </div>
+        </>
     );
 }

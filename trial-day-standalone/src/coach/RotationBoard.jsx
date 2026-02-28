@@ -59,7 +59,8 @@ export default function RotationBoard({ onAssessPlayer, checkPlayerDone }) {
     const [sid, setSid] = useState(detectSession);
     const [data, setData] = useState(() => JSON.parse(JSON.stringify(RAW_ROTATIONS)));
     const [showKey, setShowKey] = useState(false);
-    const [activeLane, setActiveLane] = useState(null); // null means show all lanes
+    const [viewMode, setViewMode] = useState('setup');
+    const [activeLane, setActiveLane] = useState(null);
     const [dropTarget, setDropTarget] = useState(null); // { rotIdx, lane, slotIdx }
     const [dragSource, setDragSource] = useState(null);
 
@@ -152,12 +153,96 @@ export default function RotationBoard({ onAssessPlayer, checkPlayerDone }) {
     const reset = () => { setData(JSON.parse(JSON.stringify(RAW_ROTATIONS))); };
 
     // ═══ SUMMARY ROWS ═══
-    const summary = useMemo(() =>
-        (session?.players || []).map(p => ({
-            name: p.name,
-            c: counts[p.name] || { BAT: 0, BOWL: 0, MACH: 0 },
-            e: errors[p.name] || new Set(),
-        })), [session, counts, errors]);
+    const summary = useMemo(() => {
+        if (!activeLane) return [];
+        const lanePlayerNames = new Set();
+        rotations.forEach(rot => {
+            (rot.lanes[activeLane] || []).forEach(p => lanePlayerNames.add(p.name));
+        });
+
+        return (session?.players || [])
+            .filter(p => lanePlayerNames.has(p.name))
+            .map(p => ({
+                name: p.name,
+                c: counts[p.name] || { BAT: 0, BOWL: 0, MACH: 0 },
+                e: errors[p.name] || new Set(),
+            }));
+    }, [session, counts, errors, activeLane, rotations]);
+
+    // ═══ SETUP RENDER ═══
+    if (viewMode === 'setup') {
+        return (
+            <div style={{ minHeight: '100vh', background: B.g50, fontFamily: F, paddingBottom: 40 }}>
+                {/* ═══ BRANDED HEADER ═══ */}
+                <div style={{ ...sGrad, padding: '16px 16px 12px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <img src={LOGO} alt="RRA" style={{ width: 36, height: 36, objectFit: 'contain' }} />
+                    <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: 16, fontWeight: 900, color: B.w, fontFamily: F, letterSpacing: 0.3 }}>
+                            Rotation Editor
+                        </div>
+                        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)', fontFamily: F, marginTop: 1 }}>
+                            Select your Time and Lane
+                        </div>
+                    </div>
+                </div>
+
+                <div style={{ padding: 20 }}>
+                    <div style={{ fontSize: 13, fontWeight: 900, color: B.nvD, marginBottom: 12 }}>1. Select Time</div>
+                    <div style={{ display: 'grid', gap: 10, marginBottom: 24 }}>
+                        {SESSIONS.map(s => {
+                            const active = sid === s.id;
+                            return (
+                                <button key={s.id} onClick={() => { setSid(s.id); setActiveLane(null); setDragSource(null); setDropTarget(null); }}
+                                    style={{
+                                        padding: '16px', borderRadius: 12, border: active ? `2px solid ${B.bl}` : `1px solid ${B.g200}`,
+                                        background: active ? B.bl : B.w, color: active ? B.w : B.nv,
+                                        fontSize: 14, fontWeight: 800, fontFamily: F, cursor: 'pointer',
+                                        transition: 'all 0.2s', display: 'flex', justifyContent: 'space-between'
+                                    }}>
+                                    <span>{s.label}</span>
+                                    <span style={{ opacity: 0.7 }}>{s.players.length} Players</span>
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    <div style={{ fontSize: 13, fontWeight: 900, color: B.nvD, marginBottom: 12 }}>2. Select Lane</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 32 }}>
+                        {LANES.map(lane => (
+                            <button key={lane} onClick={() => setActiveLane(lane)} style={{
+                                padding: '16px', borderRadius: 12, border: activeLane === lane ? `2px solid ${B.pk}` : `1px solid ${B.g300}`,
+                                background: activeLane === lane ? B.pk : B.w, color: activeLane === lane ? B.w : B.nv,
+                                fontSize: 14, fontWeight: 800, fontFamily: F, cursor: 'pointer',
+                                transition: 'all 0.2s',
+                            }}>
+                                {lane}
+                            </button>
+                        ))}
+                    </div>
+
+                    <button
+                        disabled={!sid || !activeLane}
+                        onClick={() => setViewMode('board')}
+                        style={{
+                            width: '100%', padding: '18px', borderRadius: 30, border: 'none',
+                            background: (!sid || !activeLane) ? B.g200 : B.grn,
+                            color: (!sid || !activeLane) ? B.g400 : B.w,
+                            fontSize: 15, fontWeight: 900, fontFamily: F, cursor: (!sid || !activeLane) ? 'not-allowed' : 'pointer',
+                            boxShadow: (!sid || !activeLane) ? 'none' : `0 4px 15px ${B.grn}50`,
+                            transition: 'all 0.2s',
+                        }}
+                    >
+                        Start Assessing
+                    </button>
+                    <button onClick={reset} style={{
+                        width: '100%', marginTop: 16, padding: '16px', borderRadius: 30, border: `2px solid ${B.red}`,
+                        background: 'transparent', color: B.red, fontSize: 14, fontWeight: 800,
+                        fontFamily: F, cursor: 'pointer',
+                    }}>↺ Reset All Rotations</button>
+                </div>
+            </div>
+        );
+    }
 
     // ═══ RENDER ═══
     return (
@@ -184,46 +269,22 @@ export default function RotationBoard({ onAssessPlayer, checkPlayerDone }) {
                 </div>
             </div>
 
-            {/* ═══ SESSION TABS ═══ */}
-            <div style={{ display: 'flex', gap: 4, padding: '10px 12px', background: B.g100 }}>
-                {SESSIONS.map(s => {
-                    const active = sid === s.id;
-                    return (
-                        <button key={s.id} onClick={() => { setSid(s.id); setDragSource(null); setDropTarget(null); }}
-                            style={{
-                                flex: 1, padding: '10px 6px', borderRadius: 10, border: active ? `2px solid ${B.pk}` : `1px solid ${B.g200}`,
-                                background: active ? B.nvD : B.w, color: active ? B.w : B.nv,
-                                fontSize: 12, fontWeight: 800, fontFamily: F, cursor: 'pointer',
-                                transition: 'all 0.2s',
-                            }}>
-                            {s.label}
-                            <span style={{ fontSize: 9, marginLeft: 4, opacity: 0.5, fontWeight: 600 }}>({s.players.length}p)</span>
-                        </button>
-                    );
-                })}
-                <button onClick={reset} style={{
-                    padding: '10px 12px', borderRadius: 10, border: `1.5px solid ${B.red}`,
-                    background: 'transparent', color: B.red, fontSize: 10, fontWeight: 800,
-                    fontFamily: F, cursor: 'pointer', whiteSpace: 'nowrap',
-                }}>↺ Reset</button>
-            </div>
-
-            {/* ═══ LANE SELECTOR ═══ */}
-            <div style={{ display: 'flex', gap: 6, padding: '0 12px 10px', background: B.g100, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
-                <button onClick={() => setActiveLane(null)} style={{
-                    padding: '8px 14px', borderRadius: 20, border: !activeLane ? `2px solid ${B.nv}` : `1px solid ${B.g300}`,
-                    background: !activeLane ? B.nv : B.w, color: !activeLane ? B.w : B.nv,
-                    fontSize: 12, fontWeight: 800, fontFamily: F, cursor: 'pointer', flexShrink: 0
-                }}>All Lanes</button>
-                {LANES.map(lane => (
-                    <button key={lane} onClick={() => setActiveLane(lane)} style={{
-                        padding: '8px 14px', borderRadius: 20, border: activeLane === lane ? `2px solid ${B.bl}` : `1px solid ${B.g300}`,
-                        background: activeLane === lane ? B.bl : B.w, color: activeLane === lane ? B.w : B.nv,
-                        fontSize: 12, fontWeight: 800, fontFamily: F, cursor: 'pointer', flexShrink: 0
-                    }}>
-                        {lane}
-                    </button>
-                ))}
+            {/* ═══ ACTIVE SETUP BAR ═══ */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: B.g100, borderBottom: `1px solid ${B.g200}` }}>
+                <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ padding: '6px 12px', background: B.bl, color: B.w, borderRadius: 8, fontSize: 11, fontWeight: 800, fontFamily: F }}>
+                        {session?.label}
+                    </div>
+                    <div style={{ padding: '6px 12px', background: B.pk, color: B.w, borderRadius: 8, fontSize: 11, fontWeight: 800, fontFamily: F }}>
+                        {activeLane}
+                    </div>
+                </div>
+                <button onClick={() => setViewMode('setup')} style={{
+                    background: 'transparent', border: `2px solid ${B.nv}`, color: B.nv, borderRadius: 16,
+                    padding: '6px 16px', fontSize: 11, fontWeight: 800, fontFamily: F, cursor: 'pointer'
+                }}>
+                    ← Change
+                </button>
             </div>
 
             {/* ═══ COLOUR KEY ═══ */}
