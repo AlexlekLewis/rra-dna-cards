@@ -11,13 +11,33 @@ import {
 
 const AuthContext = createContext();
 
+// ── Dev bypass: add ?devRole=coach or ?devRole=player to URL on localhost ──
+const DEV_MODE = typeof window !== 'undefined' && window.location.hostname === 'localhost';
+const DEV_ROLE_PARAM = DEV_MODE && new URLSearchParams(window.location.search).get('devRole');
+
+function makeDevProfile(role) {
+    return {
+        id: 'dev-00000000-0000-0000-0000-000000000000',
+        email: `dev-${role}@rra.internal`,
+        full_name: `Dev ${role.charAt(0).toUpperCase() + role.slice(1)}`,
+        role: role === 'coach' ? 'super_admin' : 'player',
+        submitted: role === 'player',   // player portal needs this
+    };
+}
+
 export function AuthProvider({ children }) {
-    const [session, setSession] = useState(null);
-    const [userProfile, setUserProfile] = useState(null);
-    const [authLoading, setAuthLoading] = useState(true);
+    const [session, setSession] = useState(DEV_ROLE_PARAM ? { user: { id: 'dev' } } : null);
+    const [userProfile, setUserProfile] = useState(DEV_ROLE_PARAM ? makeDevProfile(DEV_ROLE_PARAM) : null);
+    const [authLoading, setAuthLoading] = useState(DEV_ROLE_PARAM ? false : true);
     const [authStep, setAuthStep] = useState('login'); // 'login' | 'signing-in'
 
     useEffect(() => {
+        // Skip real auth when in dev bypass mode
+        if (DEV_ROLE_PARAM) {
+            console.log(`🛠 DEV AUTH BYPASS active — role: ${DEV_ROLE_PARAM}`);
+            return;
+        }
+
         let cancelled = false;
 
         const resolveProfile = async (user) => {

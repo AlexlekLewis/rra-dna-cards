@@ -11,6 +11,7 @@ export default function Journal({ session, userProfile }) {
     const [selectedSessId, setSelectedSessId] = useState("");
     const [answers, setAnswers] = useState({});
     const [saving, setSaving] = useState(false);
+    const [saveMsg, setSaveMsg] = useState(null); // { type: 'ok'|'err', text }
 
     useEffect(() => {
         if (!userProfile?.id) return;
@@ -47,7 +48,8 @@ export default function Journal({ session, userProfile }) {
                 answers: questions.map(q => ({ q, a: answers[q] || '' }))
             };
             await saveJournalEntry(entry, userProfile.id);
-            alert("Journal saved!");
+            setSaveMsg({ type: 'ok', text: '✓ Journal saved!' });
+            setTimeout(() => setSaveMsg(null), 3000);
 
             // Move session from recent to history (locally)
             const savedEntry = {
@@ -65,7 +67,8 @@ export default function Journal({ session, userProfile }) {
             setActiveTab("history");
         } catch (err) {
             console.error(err);
-            alert("Failed to save journal");
+            setSaveMsg({ type: 'err', text: '⚠ Failed to save — check your connection' });
+            setTimeout(() => setSaveMsg(null), 5000);
         } finally {
             setSaving(false);
         }
@@ -90,6 +93,12 @@ export default function Journal({ session, userProfile }) {
 
     return (
         <div>
+            {/* TOAST */}
+            {saveMsg && (
+                <div style={{ padding: '10px 16px', margin: '8px 16px 0', borderRadius: 8, fontSize: 12, fontWeight: 700, fontFamily: F, background: saveMsg.type === 'ok' ? `${B.grn}15` : '#fee2e2', color: saveMsg.type === 'ok' ? B.grn : '#dc2626', border: `1px solid ${saveMsg.type === 'ok' ? `${B.grn}30` : '#fca5a5'}`, transition: 'all 0.3s' }}>
+                    {saveMsg.text}
+                </div>
+            )}
             {/* TABS */}
             <div style={{ display: 'flex', background: B.w, borderBottom: `1px solid ${B.g200}` }}>
                 <TabBtn id="new" label="New Entry" />

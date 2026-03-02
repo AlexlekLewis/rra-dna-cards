@@ -1,9 +1,9 @@
 {
-  "name": "rra-dna-cards",
+  "name": "rra-dna-profile",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "RRA DNA Report — Player assessment cards for Melbourne Renegades",
+  "description": "RRA DNA Profile — Standalone player onboarding, 8-pillar assessment engine & DNA report cards",
   "scripts": {
     "dev": "vite",
     "build": "vite build",

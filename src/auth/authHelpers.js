@@ -8,12 +8,30 @@ import { supabase } from '../supabaseClient';
 export async function signInWithUsername(username, password) {
     const cleanUsername = username.toLowerCase().trim();
 
-    // Use security-definer RPC to restrict anon access to only login-required fields
-    const { data: member, error: lookupError } = await supabase
-        .rpc('lookup_member_for_login', { p_username: cleanUsername })
-        .single();
+    let member = null;
 
-    if (lookupError || !member) {
+    // Try security-definer RPC first (preferred — restricts anon access)
+    const { data: rpcData, error: rpcError } = await supabase
+        .rpc('lookup_member_for_login', { p_username: cleanUsername });
+
+    if (!rpcError && Array.isArray(rpcData) && rpcData.length > 0) {
+        member = rpcData[0];
+    } else {
+        // RPC missing (PGRST202) or failed — fallback to direct table query
+        if (rpcError) console.warn('RPC fallback:', rpcError.code, rpcError.message);
+        const { data: directData, error: directError } = await supabase
+            .from('program_members')
+            .select('auth_user_id, role, active')
+            .eq('username', cleanUsername)
+            .limit(1)
+            .single();
+
+        if (!directError && directData) {
+            member = directData;
+        }
+    }
+
+    if (!member) {
         throw new Error('Username not found. Please check your credentials.');
     }
 

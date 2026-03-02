@@ -10,6 +10,9 @@ export default function IDPView({ session, userProfile }) {
 
     const [newGoal, setNewGoal] = useState("");
     const [newNote, setNewNote] = useState("");
+    const [savingGoal, setSavingGoal] = useState(false);
+    const [savingNote, setSavingNote] = useState(false);
+    const [feedback, setFeedback] = useState(null); // { type: 'ok'|'err', text }
 
     // Program selector (defaults to null meaning all programs)
     const programId = null;
@@ -30,7 +33,8 @@ export default function IDPView({ session, userProfile }) {
     }, [userProfile]);
 
     const handleAddGoal = async () => {
-        if (!newGoal.trim()) return;
+        if (!newGoal.trim() || savingGoal) return;
+        setSavingGoal(true);
         try {
             const added = await addGoal({
                 player_id: userProfile.id,
@@ -41,7 +45,13 @@ export default function IDPView({ session, userProfile }) {
             }, userProfile.id);
             setGoals([added, ...goals]);
             setNewGoal("");
-        } catch (e) { console.error(e); }
+            setFeedback({ type: 'ok', text: '✓ Goal added!' });
+            setTimeout(() => setFeedback(null), 3000);
+        } catch (e) {
+            console.error(e);
+            setFeedback({ type: 'err', text: '⚠ Failed to add goal' });
+            setTimeout(() => setFeedback(null), 5000);
+        } finally { setSavingGoal(false); }
     };
 
     const handleUpdateProgress = async (id, val) => {
@@ -52,7 +62,8 @@ export default function IDPView({ session, userProfile }) {
     };
 
     const handleAddNote = async () => {
-        if (!newNote.trim()) return;
+        if (!newNote.trim() || savingNote) return;
+        setSavingNote(true);
         try {
             const added = await addNote({
                 player_id: userProfile.id,
@@ -61,7 +72,13 @@ export default function IDPView({ session, userProfile }) {
             }, userProfile.id, 'player');
             setNotes([added, ...notes]);
             setNewNote("");
-        } catch (e) { console.error(e); }
+            setFeedback({ type: 'ok', text: '✓ Note posted!' });
+            setTimeout(() => setFeedback(null), 3000);
+        } catch (e) {
+            console.error(e);
+            setFeedback({ type: 'err', text: '⚠ Failed to post note' });
+            setTimeout(() => setFeedback(null), 5000);
+        } finally { setSavingNote(false); }
     };
 
     if (loading) return <div style={{ padding: 24, fontSize: 13, color: B.g400, fontFamily: F, textAlign: 'center' }}>Loading IDP...</div>;
@@ -72,6 +89,12 @@ export default function IDPView({ session, userProfile }) {
 
     return (
         <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {/* FEEDBACK TOAST */}
+            {feedback && (
+                <div style={{ padding: '10px 16px', borderRadius: 8, fontSize: 12, fontWeight: 700, fontFamily: F, background: feedback.type === 'ok' ? `${B.grn}15` : '#fee2e2', color: feedback.type === 'ok' ? B.grn : '#dc2626', border: `1px solid ${feedback.type === 'ok' ? `${B.grn}30` : '#fca5a5'}`, transition: 'all 0.3s' }}>
+                    {feedback.text}
+                </div>
+            )}
 
             {/* ═══ GOALS ═══ */}
             <div style={{ ...sCard, padding: 20 }}>
@@ -87,8 +110,9 @@ export default function IDPView({ session, userProfile }) {
                     />
                     <button
                         onClick={handleAddGoal}
-                        style={{ padding: '0 16px', borderRadius: 8, border: 'none', background: B.bl, color: B.w, fontSize: 12, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}
-                    >ADD</button>
+                        disabled={savingGoal}
+                        style={{ padding: '0 16px', borderRadius: 8, border: 'none', background: savingGoal ? B.g200 : B.bl, color: B.w, fontSize: 12, fontWeight: 700, fontFamily: F, cursor: savingGoal ? 'default' : 'pointer', opacity: savingGoal ? 0.6 : 1, minHeight: 40 }}
+                    >{savingGoal ? '...' : 'ADD'}</button>
                 </div>
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -168,8 +192,9 @@ export default function IDPView({ session, userProfile }) {
                     />
                     <button
                         onClick={handleAddNote}
-                        style={{ padding: '0 16px', borderRadius: 8, border: 'none', background: B.nvD, color: B.w, fontSize: 12, fontWeight: 700, fontFamily: F, cursor: 'pointer' }}
-                    >POST</button>
+                        disabled={savingNote}
+                        style={{ padding: '0 16px', borderRadius: 8, border: 'none', background: savingNote ? B.g200 : B.nvD, color: B.w, fontSize: 12, fontWeight: 700, fontFamily: F, cursor: savingNote ? 'default' : 'pointer', opacity: savingNote ? 0.6 : 1, minHeight: 40 }}
+                    >{savingNote ? '...' : 'POST'}</button>
                 </div>
             </div>
 

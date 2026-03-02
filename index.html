@@ -3,11 +3,63 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>RRAMMS — Rajasthan Royals Academy Melbourne Management System</title>
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>RRA DNA Profile — Player Assessment &amp; DNA Report Cards</title>
   <link
     href="https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300;0,400;0,600;0,700;0,800;0,900;1,400&display=swap"
     rel="stylesheet" />
+  <style>
+    /* ═══ GLOBAL MOBILE HARDENING ═══ */
+    html {
+      overscroll-behavior: none;
+      -webkit-text-size-adjust: 100%;
+      scroll-behavior: smooth;
+    }
+
+    body {
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Prevent iOS zoom on input focus — inputs must be >= 16px */
+    input,
+    select,
+    textarea {
+      font-size: 16px !important;
+    }
+
+    /* Proper touch behavior on interactive elements */
+    button,
+    [role="button"],
+    input,
+    select,
+    textarea {
+      touch-action: manipulation;
+      appearance: none;
+      -webkit-appearance: none;
+    }
+
+    /* Safe area for fixed bottom bars (notched iPhones) */
+    .rra-fixed-bottom {
+      padding-bottom: max(8px, env(safe-area-inset-bottom, 8px)) !important;
+    }
+
+    /* Prevent text selection on buttons */
+    button,
+    [role="button"] {
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    /* Focus visible for accessibility */
+    :focus-visible {
+      outline: 2px solid #e91e63;
+      outline-offset: 2px;
+    }
+  </style>
 </head>
 
 <body style="margin: 0;">
